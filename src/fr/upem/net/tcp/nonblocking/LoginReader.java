@@ -14,7 +14,6 @@ public class LoginReader implements Reader {
 	private final StringReader stringReader;
 	private String nickname;
 	private int port;
-	private int nbget;
 
 	private void processInt() {
 		bb.flip();
@@ -36,7 +35,7 @@ public class LoginReader implements Reader {
 			if (status != Status.DONE) {
 				return status;
 			}
-			ByteBuffer bbNickname = (ByteBuffer) stringReader.get();
+			ByteBuffer bbNickname = (ByteBuffer) stringReader.getBB();
 			bbNickname.flip();
 			nickname = charset.decode(bbNickname).toString();
 			state = State.PORT;
@@ -52,14 +51,6 @@ public class LoginReader implements Reader {
 		return Status.DONE;
 	}
 
-	@Override
-	public Object get() {
-		if (++nbget == 1) {
-			return nickname;
-		} else
-			return port;
-	}
-
 	public int getPort() {
 		return port;
 	}
@@ -71,7 +62,6 @@ public class LoginReader implements Reader {
 	@Override
 	public void reset() {
 		state = State.USERNAME;
-		nbget = 0;
 	}
 
 }

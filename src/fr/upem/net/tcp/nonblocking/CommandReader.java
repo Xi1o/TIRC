@@ -38,8 +38,7 @@ public class CommandReader implements Reader {
 		}
 	}
 
-	@Override
-	public Object get() {
+	public byte getOpcode() {
 		return opcode;
 	}
 

@@ -58,8 +58,7 @@ public class StringReader implements Reader {
 		return Status.DONE;
 	}
 
-	@Override
-	public Object get() {
+	public ByteBuffer getBB() {
 		return bbstr;
 	}
 

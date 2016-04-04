@@ -47,7 +47,7 @@ public class Context {
 	}
 
 	private void process() {
-		switch ((byte) commandReader.get()) {
+		switch (commandReader.getOpcode()) {
 		case 0:
 			nickname = commandReader.getNickname();
 			port = commandReader.getPort();
