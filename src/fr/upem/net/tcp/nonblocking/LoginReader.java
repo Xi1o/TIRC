@@ -1,4 +1,4 @@
-package fr.upem.net.tcp.nonblocking.server;
+package fr.upem.net.tcp.nonblocking;
 
 import java.nio.ByteBuffer;
 import java.nio.charset.Charset;

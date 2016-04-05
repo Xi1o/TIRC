@@ -1,4 +1,4 @@
-package fr.upem.net.tcp.nonblocking.server;
+package fr.upem.net.tcp.nonblocking;
 
 import java.nio.ByteBuffer;
 import java.util.Objects;
@@ -38,7 +38,7 @@ public class CommandReader implements Reader {
 		}
 	}
 
-	public byte getOpcode() {
+	public byte getOpCode() {
 		return opcode;
 	}
 
