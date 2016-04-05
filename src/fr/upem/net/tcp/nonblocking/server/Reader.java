@@ -1,4 +1,4 @@
-package fr.upem.net.tcp.nonblocking;
+package fr.upem.net.tcp.nonblocking.server;
 
 public interface Reader {
 	

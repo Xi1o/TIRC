@@ -1,4 +1,4 @@
-package fr.upem.net.tcp.nonblocking;
+package fr.upem.net.tcp.nonblocking.client;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
