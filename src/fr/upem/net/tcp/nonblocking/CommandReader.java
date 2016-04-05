@@ -38,7 +38,7 @@ public class CommandReader implements Reader {
 		}
 	}
 
-	public byte getOpcode() {
+	public byte getOpCode() {
 		return opcode;
 	}
 

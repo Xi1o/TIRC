@@ -19,7 +19,7 @@ public class Context {
 	private CommandReader commandReader;
 	private String nickname;
 	private int port;
-
+	
 	private Context(ByteBuffer bbin, ByteBuffer bbout, Queue<ByteBuffer> queue,
 			CommandReader commandReader, Server server, SocketChannel sc) {
 		this.bbin = bbin;
@@ -47,14 +47,19 @@ public class Context {
 	}
 
 	private void process() {
-		switch (commandReader.getOpcode()) {
+		switch (commandReader.getOpCode()) {
 		case 0:
 			nickname = commandReader.getNickname();
 			port = commandReader.getPort();
+			if (nickname.length() > 15) { // test length first
+				refuseConnection((byte) 2);
+				isClosed = true;
+				break;
+			}
 			if (server.registerClient(nickname, this)) {
 				confirmConnection();
-			} else {
-				refuseConnection();
+			} else { // client with same nickname already exists 
+				refuseConnection((byte) 1);
 				isClosed = true;
 			}
 			break;
@@ -134,9 +139,9 @@ public class Context {
 		bbout.putInt(server.getNumberConnected());
 	}
 
-	private void refuseConnection() {
+	private void refuseConnection(byte code) {
 		bbout.put((byte) 1);
-		bbout.put((byte) 1);
+		bbout.put((byte) code);
 		bbout.putInt(server.getNumberConnected());
 	}
 }

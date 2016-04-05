@@ -20,7 +20,7 @@ public class Server {
 	protected static final int MAX_MSGSIZ = 512;
 	private final HashMap<String, Context> clients = new HashMap<>();
 	private int numberConnected;
-
+	
 	public Server(int port) throws IOException {
 		serverSocketChannel = ServerSocketChannel.open();
 		serverSocketChannel.bind(new InetSocketAddress(port));
@@ -199,7 +199,7 @@ public class Server {
 	}
 
 	private static void usage() {
-		System.out.println("Usage: Server port");
+		System.out.println("Usage: Server [port]");
 	}
 
 	public static void main(String[] args) throws NumberFormatException, IOException {
