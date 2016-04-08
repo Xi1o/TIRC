@@ -1,4 +1,4 @@
-package fr.upem.net.tcp.nonblocking;
+package fr.upem.net.tcp.reader;
 
 import java.nio.ByteBuffer;
 
@@ -10,10 +10,13 @@ public class StringReader implements Reader {
 	private final ByteBuffer bb;
 	private State state = State.READINT;
 	private int size;
-	private final ByteBuffer bbstr = ByteBuffer.allocate(Server.MAX_MSGSIZ);
+	private int maxSize;
+	private final ByteBuffer bbstr;
 
-	public StringReader(ByteBuffer bb) {
+	public StringReader(ByteBuffer bb, int maxSize) {
 		this.bb = bb;
+		this.maxSize = maxSize;
+		bbstr = ByteBuffer.allocate(maxSize);
 	}
 
 	private void processInt() {
@@ -40,7 +43,7 @@ public class StringReader implements Reader {
 				return Status.REFILL;
 			}
 			processInt();
-			if (size <= 0 || size > Server.MAX_MSGSIZ) {
+			if (size <= 0 || size > maxSize) {
 				return Status.ERROR;
 			}
 			state = State.READSTR;
@@ -57,8 +60,9 @@ public class StringReader implements Reader {
 		}
 		return Status.DONE;
 	}
-
-	public ByteBuffer getBB() {
+	
+	@Override
+	public Object get() {
 		return bbstr;
 	}
 

@@ -1,4 +1,4 @@
-package fr.upem.net.tcp.nonblocking;
+package fr.upem.net.tcp.reader;
 
 public interface Reader {
 	
@@ -7,6 +7,8 @@ public interface Reader {
 	}
 
 	public Status process();
+	
+	public Object get();
 	
 	public void reset();
 }

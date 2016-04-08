@@ -8,19 +8,22 @@ import java.nio.channels.SelectionKey;
 import java.nio.channels.Selector;
 import java.nio.channels.ServerSocketChannel;
 import java.nio.channels.SocketChannel;
+import java.nio.charset.Charset;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Set;
 
 public class Server {
+	public static final int MAX_NICKSIZ = 15;
+	public static final int MAX_MSGSIZ = 2048;
+	public static final Charset NICKNAME_CHARSET = Charset.forName("ASCII");
+	public static final Charset MSG_CHARSET = Charset.forName("UTF-8");
 	private final ServerSocketChannel serverSocketChannel;
 	private final Selector selector;
 	private final Set<SelectionKey> selectedKeys;
-	// protected static final Charset CHARSET_MSG = Charset.forName("UTF-8");
-	protected static final int MAX_MSGSIZ = 512;
 	private final HashMap<String, Context> clients = new HashMap<>();
 	private int numberConnected;
-	
+
 	public Server(int port) throws IOException {
 		serverSocketChannel = ServerSocketChannel.open();
 		serverSocketChannel.bind(new InetSocketAddress(port));
@@ -43,7 +46,7 @@ public class Server {
 		}
 	}
 
-	public void sendMessages(ByteBuffer bbmsg) {
+	public void sendMessage(ByteBuffer bbmsg) {
 		for (SelectionKey key : selector.keys()) {
 			Context context = (Context) key.attachment();
 			if (context == null) {
@@ -54,20 +57,33 @@ public class Server {
 		}
 	}
 
-	public boolean registerClient(String nickname, Context context) {
-		if(null == clients.putIfAbsent(nickname, context)) {
-			numberConnected++;
-			return true;
+	private void notifyClientHasJoined(String nickname) {
+		for (SelectionKey key : selector.keys()) {
+			Context context = (Context) key.attachment();
+			if (context == null) {
+				// server key
+				continue;
+			}
+			context.clientHasJoined(nickname);
 		}
-		return false;
 	}
-	
-	
+
+	public boolean registerClient(String nickname, Context context) {
+		if (null != clients.putIfAbsent(nickname, context)) {
+			return false;
+		}
+		numberConnected++;
+		notifyClientHasJoined(nickname);
+		context.connectedClients(clients.keySet());
+		return true;
+	}
+
 	public void unregisterClient(String nickname) {
-		numberConnected--;
-		clients.remove(nickname);
+		if(null != clients.remove(nickname)) {
+			numberConnected--;
+		}
 	}
-	
+
 	public int getNumberConnected() {
 		return numberConnected;
 	}
@@ -199,7 +215,7 @@ public class Server {
 	}
 
 	private static void usage() {
-		System.out.println("Usage: Server [port]");
+		System.out.println("Usage: Server port");
 	}
 
 	public static void main(String[] args) throws NumberFormatException, IOException {

@@ -1,19 +1,20 @@
-package fr.upem.net.tcp.nonblocking;
+package fr.upem.net.tcp.reader;
 
 import java.nio.ByteBuffer;
-import java.nio.charset.Charset;
+
+import fr.upem.net.tcp.nonblocking.Server;
 
 public class LoginReader implements Reader {
 	private enum State {
 		USERNAME, PORT;
 	}
 
-	private static final Charset charset = Charset.forName("ascii");
 	private State state;
 	private final ByteBuffer bb;
 	private final StringReader stringReader;
 	private String nickname;
 	private int port;
+	private int nbget;
 
 	private void processInt() {
 		bb.flip();
@@ -21,10 +22,10 @@ public class LoginReader implements Reader {
 		bb.compact();
 	}
 
-	public LoginReader(ByteBuffer bb) {
+	public LoginReader(ByteBuffer bb, int maxLoginSize) {
 		state = State.USERNAME;
 		this.bb = bb;
-		stringReader = new StringReader(bb);
+		stringReader = new StringReader(bb, maxLoginSize);
 	}
 
 	@Override
@@ -35,11 +36,14 @@ public class LoginReader implements Reader {
 			if (status != Status.DONE) {
 				return status;
 			}
-			ByteBuffer bbNickname = (ByteBuffer) stringReader.getBB();
+			ByteBuffer bbNickname = (ByteBuffer) stringReader.get();
 			bbNickname.flip();
-			nickname = charset.decode(bbNickname).toString();
+			nickname = Server.NICKNAME_CHARSET.decode(bbNickname).toString();
 			state = State.PORT;
 		case PORT:
+			if(bb.position() < Integer.BYTES) {
+				return Status.REFILL;
+			}
 			processInt();
 			if (port < 0 || port > 65535) {
 				return Status.ERROR;
@@ -51,17 +55,18 @@ public class LoginReader implements Reader {
 		return Status.DONE;
 	}
 
-	public int getPort() {
+	@Override
+	public Object get() {
+		if (nbget++ == 0) {
+			return nickname;
+		}
 		return port;
-	}
-
-	public String getNickname() {
-		return nickname;
 	}
 
 	@Override
 	public void reset() {
 		state = State.USERNAME;
+		nbget = 0;
 	}
 
 }
