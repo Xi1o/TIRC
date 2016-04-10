@@ -38,10 +38,10 @@ public class LoginReader implements Reader {
 			}
 			ByteBuffer bbNickname = (ByteBuffer) stringReader.get();
 			bbNickname.flip();
-			nickname = Server.NICKNAME_CHARSET.decode(bbNickname).toString();
+			nickname = Server.CHARSET_NICKNAME.decode(bbNickname).toString();
 			state = State.PORT;
 		case PORT:
-			if(bb.position() < Integer.BYTES) {
+			if (bb.position() < Integer.BYTES) {
 				return Status.REFILL;
 			}
 			processInt();

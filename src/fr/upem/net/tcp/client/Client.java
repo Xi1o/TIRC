@@ -1,12 +1,12 @@
 package fr.upem.net.tcp.client;
 
-import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.channels.SocketChannel;
 import java.nio.charset.Charset;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Objects;
 import java.util.Scanner;
 import java.util.UUID;
@@ -33,6 +33,8 @@ public class Client {
 	private final HashMap<Byte, Handeable> handler = new HashMap<>();
 	private Thread reader;
 	private Thread mainThread;
+	private final HashSet<String> connectedNicknames = new HashSet<>();
+	private boolean hasQuit;
 
 	@FunctionalInterface
 	private interface Handeable {
@@ -41,7 +43,9 @@ public class Client {
 
 	private void initHandles() {
 		handler.put((byte) 2, () -> clientHasJoined());
-		handler.put((byte) 5, ()-> receiveMessage());
+		handler.put((byte) 3, () -> connectedClients());
+		handler.put((byte) 5, () -> receiveMessage());
+		handler.put((byte) 16, () -> clientHasLeaved());
 	}
 
 	private Client(SocketChannel sc, ByteBuffer bbin, ByteBuffer bbout, String nickname,
@@ -129,7 +133,24 @@ public class Client {
 	private void clientHasJoined() throws IOException {
 		int size = readInt();
 		String nickname = readString(size, csNickname);
+		connectedNicknames.add(nickname);
 		System.out.println(nickname + " has joined.");
+	}
+
+	private void clientHasLeaved() throws IOException {
+		int size = readInt();
+		String nickname = readString(size, csNickname);
+		connectedNicknames.remove(nickname);
+		System.out.println(nickname + " has leaved.");
+	}
+
+	private void connectedClients() throws IOException {
+		int nb = readInt();
+		for (int i = 0; i < nb; i++) {
+			int size = readInt();
+			String nickname = readString(size, csNickname);
+			connectedNicknames.add(nickname);
+		}
 	}
 
 	private void requestConnection() {
@@ -175,20 +196,44 @@ public class Client {
 		bb.put(bbmsg);
 		return bb;
 	}
-	
+
 	private void receiveMessage() throws IOException {
 		int nicknameSize = readInt();
 		String nickname = readString(nicknameSize, csNickname);
 		int msgSize = readInt();
 		String msg = readString(msgSize, csMessage);
-		System.out.println(nickname+": "+msg);
+		System.out.println(nickname + ": " + msg);
+	}
+
+	private ByteBuffer disconnect() {
+		ByteBuffer bb = ByteBuffer.allocate(Byte.BYTES);
+		bb.put((byte) 15);
+		return bb;
+	}
+
+	private void printConnectedClients() {
+		System.out.println("Connected: ");
+		connectedNicknames.forEach(n -> System.out.println("\t" + n));
 	}
 
 	public void getInput() {
 		Scanner scanner = new Scanner(System.in);
-		//TODO hasNextLine cannot be interrupted
-		while (scanner.hasNextLine()) {
-			ByteBuffer bb = paquetMessage(scanner.nextLine());
+		// TODO hasNextLine cannot be interrupted
+		while (!hasQuit && scanner.hasNextLine()) {
+			String line = scanner.nextLine();
+			ByteBuffer bb;
+			switch (line) {
+			case "/quit":
+				bb = disconnect();
+				hasQuit = true;
+				break;
+			case "/connected":
+				printConnectedClients();
+				continue;
+			default:
+				bb = paquetMessage(line);
+				break;
+			}
 			bb.flip();
 			try {
 				sc.write(bb);
@@ -208,7 +253,9 @@ public class Client {
 				}
 			} catch (IOException ioe) {
 				mainThread.interrupt();
-				System.out.println("Connection with server lost lost.");
+				if (!hasQuit) {
+					System.err.println("Connection with server lost lost.");
+				}
 				return;
 			}
 		});

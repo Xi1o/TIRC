@@ -7,7 +7,6 @@ import java.util.Objects;
 
 import fr.upem.net.tcp.nonblocking.Server;
 
-
 public class CommandReader implements Reader {
 	private enum State {
 		OPCODE, COMMAND;
@@ -25,7 +24,7 @@ public class CommandReader implements Reader {
 		this.commands = commands;
 		init();
 	}
-	
+
 	private void init() {
 		readers.put((byte) 0, new LoginReader(bb, Server.MAX_NICKSIZ));
 		readers.put((byte) 4, new StringReader(bb, Server.MAX_MSGSIZ));
@@ -56,7 +55,7 @@ public class CommandReader implements Reader {
 
 	private Status processCommand() {
 		Status status = readers.get(opcode).process();
-		if(status != Status.DONE){
+		if (status != Status.DONE) {
 			return status;
 		}
 		commands.get(opcode).run();
