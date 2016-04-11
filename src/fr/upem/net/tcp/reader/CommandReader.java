@@ -54,7 +54,11 @@ public class CommandReader implements Reader {
 	}
 
 	private Status processCommand() {
-		Status status = readers.get(opcode).process();
+		Reader reader = readers.get(opcode);
+		if(null == reader) {
+			return Status.ERROR;
+		}
+		Status status = reader.process();
 		if (status != Status.DONE) {
 			return status;
 		}

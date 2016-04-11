@@ -43,7 +43,7 @@ public class StringReader implements Reader {
 				return Status.REFILL;
 			}
 			processInt();
-			if (size <= 0 || size > maxSize) {
+			if (size <= 0 || size >= maxSize) {
 				return Status.ERROR;
 			}
 			state = State.READSTR;

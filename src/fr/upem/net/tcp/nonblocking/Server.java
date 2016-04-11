@@ -39,9 +39,20 @@ public class Server {
 			printKeys();
 			System.out.println("Starting select");
 			selector.select();
+			if(Thread.interrupted()) {
+				System.out.println("Shutdown...");
+				shutdown();
+				return;
+			}
 			System.out.println("Select finished");
 			printSelectedKey();
-			processSelectedKeys();
+			try {
+				processSelectedKeys();
+			} catch (IOException e) {
+				System.out.println("Shutdown...");
+				shutdown();
+				return;
+			}
 			selectedKeys.clear();
 		}
 	}
@@ -76,7 +87,7 @@ public class Server {
 					// server key
 					continue;
 				}
-				context.clientHasLeaved(bbNickname);
+				context.clientHasLeft(bbNickname);
 			}
 		}
 	}
@@ -111,6 +122,9 @@ public class Server {
 				continue;
 			}
 			ByteBuffer bbNickname = context.getBbNickname();
+			if(null == bbNickname) {
+				continue;
+			}
 			bbNickname.flip();
 			totalSize += bbNickname.remaining();
 			list.add(bbNickname);
@@ -251,16 +265,12 @@ public class Server {
 			list.add("WRITE");
 		return String.join(" and ", list);
 	}
-
-	private static void usage() {
-		System.out.println("Usage: Server port");
+	
+	public void shutdown() throws IOException {
+		serverSocketChannel.close();
 	}
 
-	public static void main(String[] args) throws NumberFormatException, IOException {
-		if (args.length != 1) {
-			usage();
-			return;
-		}
-		new Server(Integer.parseInt(args[0])).launch();
+	public static void usage() {
+		System.out.println("Usage server: port");
 	}
 }

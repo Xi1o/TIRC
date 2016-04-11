@@ -7,6 +7,7 @@ import java.nio.channels.SocketChannel;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedList;
+import java.util.Objects;
 import java.util.Queue;
 
 import fr.upem.net.tcp.reader.CommandReader;
@@ -45,12 +46,6 @@ public class Context {
 		return new Context(bbin, bbout, queue, server, sc);
 	}
 
-	private void initCommands() {
-		commands.put((byte) 0, () -> registerNickname());
-		commands.put((byte) 4, () -> receivedMessage());
-		commands.put((byte) 15, () -> disconnect());
-	}
-
 	public void setSelectionKey(SelectionKey key) {
 		this.key = key;
 	}
@@ -59,8 +54,14 @@ public class Context {
 		this.port = port;
 	}
 
-	ByteBuffer getBbNickname() {
-		return bbNickname;
+	public ByteBuffer getBbNickname() {
+		return bbNickname.asReadOnlyBuffer();
+	}
+	
+	private void initCommands() {
+		commands.put((byte) 0, () -> registerNickname());
+		commands.put((byte) 4, () -> receivedMessage());
+		commands.put((byte) 15, () -> disconnect());
 	}
 
 	public void doRead() throws IOException {
@@ -76,10 +77,8 @@ public class Context {
 			unregister();
 			return;
 		case DONE:
-			// process();
 			break;
 		case REFILL:
-			// nothing
 			break;
 		default:
 			throw new IllegalStateException("this case should never happen");
@@ -121,7 +120,7 @@ public class Context {
 	}
 
 	public void registerMessage(ByteBuffer bbmsg) {
-		queue.offer(bbmsg);
+		queue.offer(Objects.requireNonNull(bbmsg));
 		key.interestOps(key.interestOps() | SelectionKey.OP_WRITE);
 	}
 
@@ -134,14 +133,14 @@ public class Context {
 			return;
 		}
 		if (server.registerClient(nickname, this)) {
-			confirmConnection();
+			confirmConnection(true);
 			bbNickname = Server.CHARSET_NICKNAME.encode(nickname);
 			bbNickname.compact(); // always end of data
 			isRegistered = true;
 			ByteBuffer bbmsg = server.getConnectedNicknames();
 			registerMessage(bbmsg);
 		} else {
-			refuseConnection();
+			confirmConnection(false);
 			isClosed = true;
 		}
 	}
@@ -168,15 +167,10 @@ public class Context {
 		server.sendMessage(bb);
 	}
 
-	private void confirmConnection() {
+	private void confirmConnection(boolean accept) {
+		byte confirmationByte = (accept) ? (byte) 0:1;
 		bbout.put((byte) 1);
-		bbout.put((byte) 0);
-		bbout.putInt(server.getNumberConnected());
-	}
-
-	private void refuseConnection() {
-		bbout.put((byte) 1);
-		bbout.put((byte) 1);
+		bbout.put((byte) confirmationByte);
 		bbout.putInt(server.getNumberConnected());
 	}
 
@@ -193,7 +187,7 @@ public class Context {
 		unregister();
 	}
 
-	public void clientHasLeaved(ByteBuffer bbNickname) {
+	public void clientHasLeft(ByteBuffer bbNickname) {
 		bbNickname.flip();
 		int size = bbNickname.remaining();
 		ByteBuffer bbmsg = ByteBuffer.allocate(Byte.BYTES + Integer.BYTES + size);
