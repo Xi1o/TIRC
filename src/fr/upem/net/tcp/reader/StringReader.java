@@ -47,7 +47,7 @@ public class StringReader implements Reader {
 				return Status.ERROR;
 			}
 			state = State.READSTR;
-			//no break !
+			// no break !
 		case READSTR:
 			if (bb.position() < size) {
 				return Status.REFILL;
@@ -60,7 +60,7 @@ public class StringReader implements Reader {
 		}
 		return Status.DONE;
 	}
-	
+
 	@Override
 	public Object get() {
 		return bbstr;

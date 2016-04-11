@@ -16,8 +16,8 @@ import java.util.Set;
 public class Server {
 	public static final int MAX_NICKSIZ = 15;
 	public static final int MAX_MSGSIZ = 2048;
-	public static final Charset NICKNAME_CHARSET = Charset.forName("ASCII");
-	public static final Charset MSG_CHARSET = Charset.forName("UTF-8");
+	public static final Charset CHARSET_NICKNAME = Charset.forName("ASCII");
+	public static final Charset CHARSET_MSG = Charset.forName("UTF-8");
 	private final ServerSocketChannel serverSocketChannel;
 	private final Selector selector;
 	private final Set<SelectionKey> selectedKeys;
@@ -68,24 +68,62 @@ public class Server {
 		}
 	}
 
+	private void notifyClientHasLeaved(ByteBuffer bbNickname) {
+		for (SelectionKey key : selector.keys()) {
+			if (key.isValid()) {
+				Context context = (Context) key.attachment();
+				if (context == null) {
+					// server key
+					continue;
+				}
+				context.clientHasLeaved(bbNickname);
+			}
+		}
+	}
+
 	public boolean registerClient(String nickname, Context context) {
 		if (null != clients.putIfAbsent(nickname, context)) {
 			return false;
 		}
 		numberConnected++;
 		notifyClientHasJoined(nickname);
-		context.connectedClients(clients.keySet());
 		return true;
 	}
 
-	public void unregisterClient(String nickname) {
-		if(null != clients.remove(nickname)) {
+	public void unregisterClient(String nickname, ByteBuffer bbNickname) {
+		if (null != clients.remove(nickname)) {
 			numberConnected--;
+			notifyClientHasLeaved(bbNickname);
 		}
 	}
 
 	public int getNumberConnected() {
 		return numberConnected;
+	}
+
+	public ByteBuffer getConnectedNicknames() {
+		ArrayList<ByteBuffer> list = new ArrayList<>();
+		int totalSize = 0;
+		for (SelectionKey key : selector.keys()) {
+			Context context = (Context) key.attachment();
+			if (context == null) {
+				// server key
+				continue;
+			}
+			ByteBuffer bbNickname = context.getBbNickname();
+			bbNickname.flip();
+			totalSize += bbNickname.remaining();
+			list.add(bbNickname);
+		}
+		ByteBuffer bbmsg = ByteBuffer
+				.allocate(Byte.BYTES + Integer.BYTES + Integer.BYTES * list.size() + totalSize);
+		bbmsg.put((byte) 3);
+		bbmsg.putInt(list.size());
+		list.forEach(bb -> {
+			bbmsg.putInt(bb.remaining());
+			bbmsg.put(bb);
+		});
+		return bbmsg;
 	}
 
 	private void processSelectedKeys() throws IOException {

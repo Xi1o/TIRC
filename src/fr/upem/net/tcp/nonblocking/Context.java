@@ -4,12 +4,10 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.SocketChannel;
-import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.Queue;
-import java.util.Set;
 
 import fr.upem.net.tcp.reader.CommandReader;
 
@@ -50,6 +48,7 @@ public class Context {
 	private void initCommands() {
 		commands.put((byte) 0, () -> registerNickname());
 		commands.put((byte) 4, () -> receivedMessage());
+		commands.put((byte) 15, () -> disconnect());
 	}
 
 	public void setSelectionKey(SelectionKey key) {
@@ -58,6 +57,10 @@ public class Context {
 
 	public void setPort(int port) {
 		this.port = port;
+	}
+
+	ByteBuffer getBbNickname() {
+		return bbNickname;
 	}
 
 	public void doRead() throws IOException {
@@ -132,18 +135,22 @@ public class Context {
 		}
 		if (server.registerClient(nickname, this)) {
 			confirmConnection();
-			bbNickname = Server.NICKNAME_CHARSET.encode(nickname);
+			bbNickname = Server.CHARSET_NICKNAME.encode(nickname);
 			bbNickname.compact(); // always end of data
 			isRegistered = true;
+			ByteBuffer bbmsg = server.getConnectedNicknames();
+			registerMessage(bbmsg);
 		} else {
 			refuseConnection();
 			isClosed = true;
 		}
 	}
-	
+
 	private void unregister() {
-		if(isRegistered) {
-			server.unregisterClient(nickname);
+		Server.silentlyClose(sc);
+		key.cancel();
+		if (isRegistered) {
+			server.unregisterClient(nickname, bbNickname);
 		}
 	}
 
@@ -174,20 +181,25 @@ public class Context {
 	}
 
 	public void clientHasJoined(String nickname) {
-		ByteBuffer bblogin = Server.NICKNAME_CHARSET.encode(nickname);
-		ByteBuffer bb = ByteBuffer.allocate(Byte.BYTES + Integer.BYTES + bblogin.remaining());
-		bb.put((byte) 2);
-		bb.putInt(bblogin.remaining());
-		bb.put(bblogin);
-		registerMessage(bb);
+		ByteBuffer bblogin = Server.CHARSET_NICKNAME.encode(nickname);
+		ByteBuffer bbmsg = ByteBuffer.allocate(Byte.BYTES + Integer.BYTES + bblogin.remaining());
+		bbmsg.put((byte) 2);
+		bbmsg.putInt(bblogin.remaining());
+		bbmsg.put(bblogin);
+		registerMessage(bbmsg);
 	}
 
-	public void connectedClients(Set<String> nicknames) {
-		ArrayList<ByteBuffer> list = new ArrayList<>();
-		for (String nickname : nicknames) {
-			// TODO
-		}
-		// ByteBuffer bb = ByteBuffer.allocate(Byte.BYTES + Integer.BYTES +
-		// nicknames.size());
+	private void disconnect() {
+		unregister();
+	}
+
+	public void clientHasLeaved(ByteBuffer bbNickname) {
+		bbNickname.flip();
+		int size = bbNickname.remaining();
+		ByteBuffer bbmsg = ByteBuffer.allocate(Byte.BYTES + Integer.BYTES + size);
+		bbmsg.put((byte) 16);
+		bbmsg.putInt(size);
+		bbmsg.put(bbNickname);
+		registerMessage(bbmsg);
 	}
 }
