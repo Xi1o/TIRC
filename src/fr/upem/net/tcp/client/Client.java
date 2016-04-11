@@ -11,6 +11,8 @@ import java.util.Objects;
 import java.util.Scanner;
 import java.util.UUID;
 
+import javax.swing.SwingUtilities;
+
 /**
  * Class used as a client using the TIRC protocol.
  * 
@@ -35,6 +37,8 @@ public class Client {
 	private Thread mainThread;
 	private final HashSet<String> connectedNicknames = new HashSet<>();
 	private boolean hasQuit;
+	private final ClientGUI clientGUI = new ClientGUI(this); // graphical user
+																// interface
 
 	@FunctionalInterface
 	private interface Handeable {
@@ -45,11 +49,11 @@ public class Client {
 		handler.put((byte) 2, () -> clientHasJoined());
 		handler.put((byte) 3, () -> connectedClients());
 		handler.put((byte) 5, () -> receiveMessage());
-		handler.put((byte) 16, () -> clientHasLeaved());
+		handler.put((byte) 16, () -> clientHasLeft());
 	}
 
-	private Client(SocketChannel sc, ByteBuffer bbin, ByteBuffer bbout, String nickname,
-			int listenport) throws SecurityException, IOException {
+	private Client(SocketChannel sc, ByteBuffer bbin, ByteBuffer bbout, String nickname, int listenport)
+			throws SecurityException, IOException {
 		this.sc = sc;
 		this.bbin = bbin;
 		this.bbout = bbout;
@@ -71,8 +75,7 @@ public class Client {
 	 * @return a new client.
 	 * @throws IOException
 	 */
-	public static Client create(InetSocketAddress host, String nickname, int listenport)
-			throws IOException {
+	public static Client create(InetSocketAddress host, String nickname, int listenport) throws IOException {
 		Objects.requireNonNull(host);
 		Objects.requireNonNull(nickname);
 		if (listenport < 0 || listenport > 65535) {
@@ -134,14 +137,14 @@ public class Client {
 		int size = readInt();
 		String nickname = readString(size, csNickname);
 		connectedNicknames.add(nickname);
-		System.out.println(nickname + " has joined.");
+		clientGUI.println(nickname + " has joined.");
 	}
 
-	private void clientHasLeaved() throws IOException {
+	private void clientHasLeft() throws IOException {
 		int size = readInt();
 		String nickname = readString(size, csNickname);
 		connectedNicknames.remove(nickname);
-		System.out.println(nickname + " has leaved.");
+		clientGUI.println(nickname + " has left.");
 	}
 
 	private void connectedClients() throws IOException {
@@ -178,11 +181,11 @@ public class Client {
 		byte code = readByte();
 		if (code == 0) {
 			numberConnected = readInt();
-			System.out.println("You are connected as " + nickname + ".");
-			System.out.println(numberConnected + " person(s) connected.");
+			clientGUI.println("You are connected as " + nickname + ".");
+			clientGUI.println(numberConnected + " person(s) connected.");
 			return true;
 		} else {
-			System.out.println("Your nickname is already taken.");
+			clientGUI.println("Your nickname is already taken.");
 			return false;
 		}
 	}
@@ -202,7 +205,7 @@ public class Client {
 		String nickname = readString(nicknameSize, csNickname);
 		int msgSize = readInt();
 		String msg = readString(msgSize, csMessage);
-		System.out.println(nickname + ": " + msg);
+		clientGUI.println("<" + nickname + ">" + " " + msg);
 	}
 
 	private ByteBuffer disconnect() {
@@ -212,37 +215,8 @@ public class Client {
 	}
 
 	private void printConnectedClients() {
-		System.out.println("Connected: ");
-		connectedNicknames.forEach(n -> System.out.println("\t" + n));
-	}
-
-	public void getInput() {
-		Scanner scanner = new Scanner(System.in);
-		// TODO hasNextLine cannot be interrupted
-		while (!hasQuit && scanner.hasNextLine()) {
-			String line = scanner.nextLine();
-			ByteBuffer bb;
-			switch (line) {
-			case "/quit":
-				bb = disconnect();
-				hasQuit = true;
-				break;
-			case "/connected":
-				printConnectedClients();
-				continue;
-			default:
-				bb = paquetMessage(line);
-				break;
-			}
-			bb.flip();
-			try {
-				sc.write(bb);
-			} catch (IOException e) {
-				System.err.println("Connection lost.");
-				break;
-			}
-		}
-		scanner.close();
+		clientGUI.println("Connected: ");
+		connectedNicknames.forEach(n -> clientGUI.println("\t" + n));
 	}
 
 	public void launch() {
@@ -254,7 +228,7 @@ public class Client {
 			} catch (IOException ioe) {
 				mainThread.interrupt();
 				if (!hasQuit) {
-					System.err.println("Connection with server lost lost.");
+					System.err.println("Connection with server lost.");
 				}
 				return;
 			}
@@ -288,7 +262,47 @@ public class Client {
 			return;
 		}
 		client.launch();
-		client.getInput();
-		client.close();
+		/*
+		 * GUI = event driven, we don't use a main loop to exit anymore.
+		 * Client.closed() will be called with ClientGUI.exit()
+		 */
+	}
+
+	/**
+	 * Interprets commands and regular messages.
+	 * 
+	 * @param line
+	 *            The line to be processed.
+	 * @throws IOException
+	 *             If a I/O error occurs while interpreting the /quit command.
+	 */
+	public void processInput(String line) throws IOException {
+		/*
+		 * any command which doesn't send packet after the case should return
+		 * and not break
+		 */
+		ByteBuffer bb = null;
+		switch (line) {
+		case "/quit":
+			bb = disconnect();
+			hasQuit = true;
+			break;
+		case "/connected":
+			printConnectedClients();
+			return; // leave method, don't send packet
+		default:
+			bb = paquetMessage(line);
+			break;
+		}
+		// sending packet
+		Objects.requireNonNull(bb).flip(); // in case forgot return when needed
+		try {
+			sc.write(bb);
+		} catch (IOException e) {
+			System.err.println("Connection lost."); // TODO next?
+		}
+		if (hasQuit) {
+			clientGUI.exit();
+		}
 	}
 }
