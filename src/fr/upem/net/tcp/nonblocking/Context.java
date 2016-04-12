@@ -29,8 +29,7 @@ public class Context {
 	private int privatePort;
 	private boolean isRegistered = false;
 
-	private Context(ByteBuffer bbin, ByteBuffer bbout, Queue<ByteBuffer> queue, Server server, SocketChannel sc)
-			throws IOException {
+	private Context(ByteBuffer bbin, ByteBuffer bbout, Queue<ByteBuffer> queue, Server server, SocketChannel sc) {
 		this.bbin = bbin;
 		this.bbout = bbout;
 		this.queue = queue;
@@ -40,7 +39,7 @@ public class Context {
 		commandReader = new CommandReader(bbin, Collections.unmodifiableMap(commands));
 	}
 
-	public static Context create(Server server, SocketChannel sc) throws IOException {
+	public static Context create(Server server, SocketChannel sc) {
 		ByteBuffer bbin = ByteBuffer.allocate(BUFSIZ);
 		ByteBuffer bbout = ByteBuffer.allocate(BUFSIZ);
 		Queue<ByteBuffer> queue = new LinkedList<>();
