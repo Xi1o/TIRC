@@ -1,6 +1,7 @@
 package fr.upem.net.tcp.nonblocking;
 
 import java.io.IOException;
+import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.channels.SelectableChannel;
@@ -23,6 +24,8 @@ public class Server {
 	private final Set<SelectionKey> selectedKeys;
 	private final HashMap<String, Context> clients = new HashMap<>();
 	private int numberConnected;
+
+	/* Server core */
 
 	public Server(int port) throws IOException {
 		serverSocketChannel = ServerSocketChannel.open();
@@ -55,97 +58,6 @@ public class Server {
 			}
 			selectedKeys.clear();
 		}
-	}
-
-	public void sendMessage(ByteBuffer bbmsg) {
-		for (SelectionKey key : selector.keys()) {
-			Context context = (Context) key.attachment();
-			if (context == null) {
-				// server key
-				continue;
-			}
-			context.registerMessage(bbmsg);
-		}
-	}
-
-	private void notifyClientHasJoined(String nickname) {
-		for (SelectionKey key : selector.keys()) {
-			Context context = (Context) key.attachment();
-			if (context == null) {
-				// server key
-				continue;
-			}
-			context.clientHasJoined(nickname);
-		}
-	}
-
-	private void notifyClientHasLeaved(ByteBuffer bbNickname) {
-		for (SelectionKey key : selector.keys()) {
-			if (key.isValid()) {
-				Context context = (Context) key.attachment();
-				if (context == null) {
-					// server key
-					continue;
-				}
-				context.clientHasLeft(bbNickname);
-			}
-		}
-	}
-
-	public boolean registerClient(String nickname, Context context) {
-		if (null != clients.putIfAbsent(nickname, context)) {
-			return false;
-		}
-		numberConnected++;
-		notifyClientHasJoined(nickname);
-		return true;
-	}
-
-	public void unregisterClient(String nickname, ByteBuffer bbNickname) {
-		if (null != clients.remove(nickname)) {
-			numberConnected--;
-			notifyClientHasLeaved(bbNickname);
-		}
-	}
-
-	/**
-	 * Get the Context of a client specified by nickname.
-	 * @param nickname Nickname of the client to get the context from.
-	 * @return The Context of the client.
-	 */
-	public Context getContextByNickname(String nickname) {
-		return clients.get(nickname);
-	}
-	
-	public int getNumberConnected() {
-		return numberConnected;
-	}
-
-	public ByteBuffer getConnectedNicknames() {
-		ArrayList<ByteBuffer> list = new ArrayList<>();
-		int totalSize = 0;
-		for (SelectionKey key : selector.keys()) {
-			Context context = (Context) key.attachment();
-			if (context == null) {
-				// server key
-				continue;
-			}
-			ByteBuffer bbNickname = context.getBbNickname();
-			if (null == bbNickname) {
-				continue;
-			}
-			bbNickname.flip();
-			totalSize += bbNickname.remaining();
-			list.add(bbNickname);
-		}
-		ByteBuffer bbmsg = ByteBuffer.allocate(Byte.BYTES + Integer.BYTES + Integer.BYTES * list.size() + totalSize);
-		bbmsg.put((byte) 3);
-		bbmsg.putInt(list.size());
-		list.forEach(bb -> {
-			bbmsg.putInt(bb.remaining());
-			bbmsg.put(bb);
-		});
-		return bbmsg;
 	}
 
 	private void processSelectedKeys() throws IOException {
@@ -198,6 +110,137 @@ public class Server {
 		}
 	}
 
+	public void shutdown() throws IOException {
+		serverSocketChannel.close();
+	}
+
+	public static void usage() {
+		System.out.println("Usage server: port");
+	}
+
+	/* Trigger */
+
+	private void notifyClientHasJoined(String nickname) {
+		for (SelectionKey key : selector.keys()) {
+			Context context = (Context) key.attachment();
+			if (context == null) {
+				// server key
+				continue;
+			}
+			context.clientHasJoined(nickname);
+		}
+	}
+
+	private void notifyClientHasLeaved(ByteBuffer bbNickname) {
+		for (SelectionKey key : selector.keys()) {
+			if (key.isValid()) {
+				Context context = (Context) key.attachment();
+				if (context == null) {
+					// server key
+					continue;
+				}
+				context.clientHasLeft(bbNickname);
+			}
+		}
+	}
+
+	/* Request from Context */
+
+	public void sendMessage(ByteBuffer bbmsg) {
+		for (SelectionKey key : selector.keys()) {
+			Context context = (Context) key.attachment();
+			if (context == null) {
+				// server key
+				continue;
+			}
+			context.registerMessage(bbmsg);
+		}
+	}
+
+	public boolean registerClient(String nickname, Context context) {
+		if (null != clients.putIfAbsent(nickname, context)) {
+			return false;
+		}
+		numberConnected++;
+		notifyClientHasJoined(nickname);
+		return true;
+	}
+
+	public void unregisterClient(String nickname, ByteBuffer bbNickname) {
+		if (null != clients.remove(nickname)) {
+			numberConnected--;
+			notifyClientHasLeaved(bbNickname);
+		}
+	}
+
+	public int getNumberConnected() {
+		return numberConnected;
+	}
+
+	public ByteBuffer getConnectedNicknames() {
+		ArrayList<ByteBuffer> list = new ArrayList<>();
+		int totalSize = 0;
+		for (SelectionKey key : selector.keys()) {
+			Context context = (Context) key.attachment();
+			if (context == null) {
+				// server key
+				continue;
+			}
+			ByteBuffer bbNickname = context.getBbNickname();
+			if (null == bbNickname) {
+				continue;
+			}
+			bbNickname.flip();
+			totalSize += bbNickname.remaining();
+			list.add(bbNickname);
+		}
+		ByteBuffer bbmsg = ByteBuffer
+				.allocate(Byte.BYTES + Integer.BYTES + Integer.BYTES * list.size() + totalSize);
+		bbmsg.put((byte) 3);
+		bbmsg.putInt(list.size());
+		list.forEach(bb -> {
+			bbmsg.putInt(bb.remaining());
+			bbmsg.put(bb);
+		});
+		return bbmsg;
+	}
+
+	public void askPermissionPrivateConnection(String fromNickname, String toNickname) {
+		Context context = clients.get(toNickname);
+		if (null == context) {
+			// TODO LOG
+			System.err.println("Asking for private connection from " + fromNickname
+					+ "with unknown client " + toNickname);
+			return;
+		}
+		context.askPrivateCommunication(fromNickname);
+	}
+
+	public void acceptPrivateConnection(String fromNickname, String toNickname, InetAddress inet,
+			int port, long id) {
+		Context context = clients.get(toNickname);
+		if (null == context) {
+			// TODO LOG
+			System.err.println("Accept for private connection from " + fromNickname
+					+ "with unknown client " + toNickname);
+			return;
+		}
+		context.acceptPrivateCommunication(fromNickname, inet, port, id);
+	}
+
+	public void refusePrivateConnection(String fromNickname, String toNickname) {
+		Context context = clients.get(toNickname);
+		if (null == context) {
+			// TODO LOG
+			System.err.println("Refuse for private connection from " + fromNickname
+					+ "with unknown client " + toNickname);
+			return;
+		}
+		context.refusePrivateCommunication(fromNickname);
+	}
+
+	/* Print debug */
+
 	private String interestOpsToString(SelectionKey key) {
 		if (!key.isValid()) {
 			return "CANCELLED";
@@ -226,12 +269,13 @@ public class Server {
 				System.out.println("\tKey for ServerSocketChannel : " + interestOpsToString(key));
 			} else {
 				SocketChannel sc = (SocketChannel) channel;
-				System.out.println("\tKey for Client " + remoteAddressToString(sc) + " : " + interestOpsToString(key));
+				System.out.println("\tKey for Client " + remoteAddressToString(sc) + " : "
+						+ interestOpsToString(key));
 			}
 
 		}
 	}
-	
+
 	private String remoteAddressToString(SocketChannel sc) {
 		try {
 			return sc.getRemoteAddress().toString();
@@ -249,11 +293,12 @@ public class Server {
 		for (SelectionKey key : selectedKeys) {
 			SelectableChannel channel = key.channel();
 			if (channel instanceof ServerSocketChannel) {
-				System.out.println("\tServerSocketChannel can perform : " + possibleActionsToString(key));
+				System.out.println(
+						"\tServerSocketChannel can perform : " + possibleActionsToString(key));
 			} else {
 				SocketChannel sc = (SocketChannel) channel;
-				System.out.println(
-						"\tClient " + remoteAddressToString(sc) + " can perform : " + possibleActionsToString(key));
+				System.out.println("\tClient " + remoteAddressToString(sc) + " can perform : "
+						+ possibleActionsToString(key));
 			}
 		}
 	}
@@ -271,13 +316,4 @@ public class Server {
 			list.add("WRITE");
 		return String.join(" and ", list);
 	}
-
-	public void shutdown() throws IOException {
-		serverSocketChannel.close();
-	}
-
-	public static void usage() {
-		System.out.println("Usage server: port");
-	}
-
 }

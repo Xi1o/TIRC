@@ -9,6 +9,7 @@ import java.nio.charset.Charset;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Objects;
+import java.util.Random;
 
 /**
  * Class used as a client using the TIRC protocol.
@@ -34,22 +35,18 @@ public class Client {
 	private final HashSet<String> connectedNicknames = new HashSet<>();
 	private boolean hasQuit;
 	private final ClientGUI clientGUI = new ClientGUI(this);
+	private final Random randomId = new Random();
+	private final HashMap<String, Long> privateConnections = new HashMap<>();
 
 	@FunctionalInterface
 	private interface Handeable {
 		public void handle() throws IOException;
 	}
 
-	private void initHandles() {
-		handler.put((byte) 2, () -> clientHasJoined());
-		handler.put((byte) 3, () -> connectedClients());
-		handler.put((byte) 5, () -> receiveMessage());
-		handler.put((byte) 7, () -> receiveClientInfoReply());
-		handler.put((byte) 16, () -> clientHasLeft());
-	}
+	/* Core */
 
-	private Client(SocketChannel sc, ByteBuffer bbin, ByteBuffer bbout, String nickname, int listenport)
-			throws SecurityException, IOException {
+	private Client(SocketChannel sc, ByteBuffer bbin, ByteBuffer bbout, String nickname,
+			int listenport) throws SecurityException, IOException {
 		this.sc = sc;
 		this.bbin = bbin;
 		this.bbout = bbout;
@@ -71,7 +68,8 @@ public class Client {
 	 * @return a new client.
 	 * @throws IOException
 	 */
-	public static Client create(InetSocketAddress host, String nickname, int listenport) throws IOException {
+	public static Client create(InetSocketAddress host, String nickname, int listenport)
+			throws IOException {
 		Objects.requireNonNull(host);
 		Objects.requireNonNull(nickname);
 		if (listenport < 0 || listenport > 65535) {
@@ -86,191 +84,13 @@ public class Client {
 		return client;
 	}
 
-	private boolean readFully() throws IOException {
-		while (bbin.hasRemaining()) {
-			if (sc.read(bbin) == -1) {
-				return false;
-			}
-		}
-		return true;
-	}
-
-	private byte readByte() throws IOException {
-		bbin.clear();
-		bbin.limit(Byte.BYTES);
-		if (!readFully()) {
-			throw new IOException("connection lost");
-		}
-		bbin.flip();
-		return bbin.get();
-	}
-
-	private int readInt() throws IOException {
-		bbin.clear();
-		bbin.limit(Integer.BYTES);
-		if (!readFully()) {
-			throw new IOException("connection lost");
-		}
-		bbin.flip();
-		return bbin.getInt();
-	}
-
-	private String readString(int size, Charset cs) throws IOException {
-		bbin.clear();
-		bbin.limit(size);
-		if (!readFully()) {
-			throw new IOException("connection lost");
-		}
-		bbin.flip();
-		return cs.decode(bbin).toString();
-	}
-	
-	private byte[] readAddress(int size) throws IOException {
-		bbin.clear();
-		bbin.limit(size);
-		if (!readFully()) {
-			throw new IOException("connection lost");
-		}
-		bbin.flip();
-		byte[] addr = new byte[bbin.remaining()];
-		bbin.get(addr);
-		return addr;
-	}
-
-	private void error() {
-		System.out.println("[ERROR] Unknown opcode from server.");
-	}
-
-	private void clientHasJoined() throws IOException {
-		int size = readInt();
-		String nickname = readString(size, csNickname);
-		connectedNicknames.add(nickname);
-		clientGUI.println(nickname + " has joined.");
-	}
-
-	private void clientHasLeft() throws IOException {
-		int size = readInt();
-		String nickname = readString(size, csNickname);
-		connectedNicknames.remove(nickname);
-		clientGUI.println(nickname + " has left.");
-	}
-
-	private void connectedClients() throws IOException {
-		int nb = readInt();
-		for (int i = 0; i < nb; i++) {
-			int size = readInt();
-			String nickname = readString(size, csNickname);
-			connectedNicknames.add(nickname);
-		}
-	}
-
-	private boolean isConnectedClient(String nickname) {
-		if (!connectedNicknames.contains(nickname)) {
-			clientGUI.println("Unknown nickname: " + nickname);
-			return false;
-		}
-		return true;
-	}
-
-	private void requestConnection() {
-		ByteBuffer bbNickname = csNickname.encode(nickname);
-		bbout.put((byte) 0);
-		bbout.putInt(bbNickname.remaining());
-		bbout.put(bbNickname);
-		bbout.putInt(listenport);
-	}
-
-	/**
-	 * Performs the connection of the client to the server.
-	 * 
-	 * @return true if successfully connected, false otherwise
-	 * @throws IOException
-	 *             if an I/O error occurs
-	 */
-	public boolean logMeIn() throws IOException {
-		requestConnection();
-		bbout.flip();
-		sc.write(bbout);
-		if (1 != readByte()) {
-			return false;
-		}
-		byte code = readByte();
-		if (code == 0) {
-			numberConnected = readInt();
-			clientGUI.println("You are connected as " + nickname + ".");
-			clientGUI.println(numberConnected + " person(s) connected.");
-			return true;
-		} else {
-			clientGUI.println("Your nickname is already taken.");
-			return false;
-		}
-	}
-
-	private ByteBuffer packetMessage(String msg) {
-		ByteBuffer bbmsg = csMessage.encode(msg);
-		bbmsg.limit((bbmsg.limit() > MAX_MSGSIZ) ? MAX_MSGSIZ - 1 : bbmsg.limit());
-		ByteBuffer bb = ByteBuffer.allocate(Byte.BYTES + Integer.BYTES + bbmsg.limit());
-		bb.put((byte) 4);
-		bb.putInt(bbmsg.limit());
-		bb.put(bbmsg);
-		return bb;
-	}
-
-	private void receiveMessage() throws IOException {
-		int nicknameSize = readInt();
-		String nickname = readString(nicknameSize, csNickname);
-		int msgSize = readInt();
-		String msg = readString(msgSize, csMessage);
-		clientGUI.println("<" + nickname + ">" + " " + msg);
-	}
-
-	private void receiveClientInfoReply() throws IOException {
-		int destPort = readInt();
-		// reading IP address
-		int addrSize = readInt();
-		byte[] addr = readAddress(addrSize);
-		InetAddress inet = InetAddress.getByAddress(addr);
-		clientGUI.println("Your recipient is listening on port " + destPort + " for private communication.");
-		clientGUI.println("Your recipient's address IP is " + inet.getHostAddress() + ".");
-		// TODO finish the method
-	}
-
-
-	private ByteBuffer disconnect() {
-		ByteBuffer bb = ByteBuffer.allocate(Byte.BYTES);
-		bb.put((byte) 15);
-		return bb;
-	}
-
-	private void printConnectedClients() {
-		clientGUI.println("Connected: ");
-		connectedNicknames.forEach(n -> clientGUI.println("\t" + n));
-	}
-
-	private ByteBuffer packetClientInfoRequest(String nickname) {
-		ByteBuffer bbNickname = csNickname.encode(nickname);
-		ByteBuffer bb = ByteBuffer.allocate(Byte.BYTES + Integer.BYTES + bbNickname.remaining());
-		bb.put((byte) 6);
-		bb.putInt(bbNickname.remaining());
-		bb.put(bbNickname);
-		return bb;
-	}
-
-	public void launch() {
-		reader = new Thread(() -> {
-			try {
-				while (true) {
-					handler.getOrDefault(readByte(), () -> error()).handle();
-				}
-			} catch (IOException ioe) {
-				mainThread.interrupt();
-				if (!hasQuit) {
-					System.err.println("Connection with server lost.");
-				}
-				return;
-			}
-		});
-		reader.start();
+	private void initHandles() {
+		handler.put((byte) 2, () -> clientHasJoined());
+		handler.put((byte) 3, () -> connectedClients());
+		handler.put((byte) 5, () -> receivedMessage());
+		handler.put((byte) 7, () -> confirmPrivateConnection());
+		handler.put((byte) 9, () -> answerPrivateConnection());
+		handler.put((byte) 16, () -> clientHasLeft());
 	}
 
 	public void close() throws IOException {
@@ -281,6 +101,26 @@ public class Client {
 	public static void usage() {
 		System.out.println("Client host port nickname listenport");
 	}
+
+	public void launch() {
+		reader = new Thread(() -> {
+			try {
+				while (true) {
+					Byte opcode = readByte();
+					handler.getOrDefault(opcode, () -> error()).handle();
+				}
+			} catch (IOException ioe) {
+				mainThread.interrupt();
+				if (!hasQuit) {
+					System.err.println("Connection with server lost (launch): " + ioe);
+				}
+				return;
+			}
+		});
+		reader.start();
+	}
+
+	/* User's input */
 
 	/**
 	 * Interprets commands and regular messages.
@@ -295,7 +135,7 @@ public class Client {
 		String[] argsInput = parseInput(input);
 		switch (argsInput[0]) { // switch for commands
 		case "/quit":
-			bb = disconnect();
+			bb = packetDisconnect();
 			hasQuit = true;
 			break;
 		case "/connected":
@@ -327,7 +167,7 @@ public class Client {
 		try {
 			sc.write(bb);
 		} catch (IOException e) {
-			System.err.println("Connection lost."); // TODO next?
+			System.err.println("Connection lost (processInput).");
 		}
 		if (hasQuit) {
 			clientGUI.exit();
@@ -356,4 +196,262 @@ public class Client {
 		return args;
 	}
 
+	private void printConnectedClients() {
+		clientGUI.println("Connected: ");
+		connectedNicknames.forEach(n -> clientGUI.println("\t" + n));
+	}
+
+	/* Read opérations */
+
+	private boolean readFully() throws IOException {
+		while (bbin.hasRemaining()) {
+			if (sc.read(bbin) == -1) {
+				return false;
+			}
+		}
+		return true;
+	}
+
+	private byte readByte() throws IOException {
+		bbin.clear();
+		bbin.limit(Byte.BYTES);
+		if (!readFully()) {
+			throw new IOException("connection lost (readfully byte)");
+		}
+		bbin.flip();
+		return bbin.get();
+	}
+
+	private int readInt() throws IOException {
+		bbin.clear();
+		bbin.limit(Integer.BYTES);
+		if (!readFully()) {
+			throw new IOException("connection lost");
+		}
+		bbin.flip();
+		return bbin.getInt();
+	}
+
+	private long readLong() throws IOException {
+		bbin.clear();
+		bbin.limit(Long.BYTES);
+		if (!readFully()) {
+			throw new IOException("connection lost");
+		}
+		bbin.flip();
+		return bbin.getLong();
+	}
+
+	private String readString(int size, Charset cs) throws IOException {
+		bbin.clear();
+		bbin.limit(size);
+		if (!readFully()) {
+			throw new IOException("connection lost");
+		}
+		bbin.flip();
+		return cs.decode(bbin).toString();
+	}
+
+	private byte[] readAddress(boolean isIpv4) throws IOException {
+		int size = (isIpv4) ? 4 : 32;
+		bbin.clear();
+		bbin.limit(size);
+		if (!readFully()) {
+			throw new IOException("connection lost");
+		}
+		bbin.flip();
+		byte[] addr = new byte[bbin.remaining()];
+		bbin.get(addr);
+		return addr;
+	}
+
+	/* Request to server */
+
+	/**
+	 * Performs the connection of the client to the server.
+	 * 
+	 * @return true if successfully connected, false otherwise
+	 * @throws IOException
+	 *             if an I/O error occurs
+	 */
+	public boolean logMeIn() throws IOException {
+		requestConnection();
+		bbout.flip();
+		sc.write(bbout);
+		if (1 != readByte()) {
+			return false;
+		}
+		byte code = readByte();
+		if (code == 0) {
+			numberConnected = readInt();
+			clientGUI.println("You are connected as " + nickname + ".");
+			clientGUI.println(numberConnected + " person(s) connected.");
+			return true;
+		} else {
+			clientGUI.println("Your nickname is already taken.");
+			return false;
+		}
+	}
+
+	private void requestConnection() {
+		ByteBuffer bbNickname = csNickname.encode(nickname);
+		bbout.put((byte) 0);
+		bbout.putInt(bbNickname.remaining());
+		bbout.put(bbNickname);
+		bbout.putInt(listenport);
+	}
+
+	private void acceptPrivateConnection(String nickname) throws IOException {
+		if (null != privateConnections.putIfAbsent(nickname, randomId.nextLong())) {
+			clientGUI.println("Already in private connection with " + nickname);
+			return;
+		}
+		ByteBuffer bb = packetAcceptPrivateCommunication(nickname);
+		bb.flip();
+		sc.write(bb);
+	}
+
+	private void refusePrivateConnection(String nickname) throws IOException {
+		ByteBuffer bb = packetRefusePrivateCommunication(nickname);
+		bb.flip();
+		sc.write(bb);
+	}
+
+	/* Packet builder */
+
+	private ByteBuffer packetMessage(String msg) {
+		ByteBuffer bbmsg = csMessage.encode(msg);
+		bbmsg.limit((bbmsg.limit() > MAX_MSGSIZ) ? MAX_MSGSIZ - 1 : bbmsg.limit());
+		ByteBuffer bb = ByteBuffer.allocate(Byte.BYTES + Integer.BYTES + bbmsg.limit());
+		bb.put((byte) 4);
+		bb.putInt(bbmsg.limit());
+		bb.put(bbmsg);
+		return bb;
+	}
+
+	private ByteBuffer packetDisconnect() {
+		ByteBuffer bb = ByteBuffer.allocate(Byte.BYTES);
+		bb.put((byte) 15);
+		return bb;
+	}
+
+	private ByteBuffer packetClientInfoRequest(String nickname) {
+		ByteBuffer bbNickname = csNickname.encode(nickname);
+		ByteBuffer bb = ByteBuffer.allocate(Byte.BYTES + Integer.BYTES + bbNickname.remaining());
+		bb.put((byte) 6);
+		bb.putInt(bbNickname.remaining());
+		bb.put(bbNickname);
+		return bb;
+	}
+
+	private ByteBuffer packetAcceptPrivateCommunication(String nickname) {
+		ByteBuffer bbNickname = csNickname.encode(nickname);
+		ByteBuffer bb = ByteBuffer.allocate(
+				Byte.BYTES + Byte.BYTES + Integer.BYTES + bbNickname.remaining() + Long.BYTES);
+		bb.put((byte) 8);
+		bb.put((byte) 0);
+		bb.putInt(bbNickname.remaining());
+		bb.put(bbNickname);
+		bb.putLong(privateConnections.get(nickname));
+		return bb;
+	}
+
+	private ByteBuffer packetRefusePrivateCommunication(String nickname) {
+		ByteBuffer bbNickname = csNickname.encode(nickname);
+		ByteBuffer bb = ByteBuffer
+				.allocate(Byte.BYTES + Byte.BYTES + Integer.BYTES + bbNickname.remaining());
+		bb.put((byte) 8);
+		bb.put((byte) 1);
+		bb.putInt(bbNickname.remaining());
+		bb.put(bbNickname);
+		return bb;
+	}
+
+	/* Commands */
+
+	// Opcode unknown
+	private void error() {
+		System.out.println("[ERROR] Unknown opcode from server.");
+	}
+
+	// Opcode 2
+	private void clientHasJoined() throws IOException {
+		int size = readInt();
+		String nickname = readString(size, csNickname);
+		connectedNicknames.add(nickname);
+		clientGUI.println(nickname + " has joined.");
+	}
+
+	// Opcode 3
+	private void connectedClients() throws IOException {
+		int nb = readInt();
+		for (int i = 0; i < nb; i++) {
+			int size = readInt();
+			String nickname = readString(size, csNickname);
+			connectedNicknames.add(nickname);
+		}
+	}
+
+	// Opcode 5
+	private void receivedMessage() throws IOException {
+		int nicknameSize = readInt();
+		String nickname = readString(nicknameSize, csNickname);
+		int msgSize = readInt();
+		String msg = readString(msgSize, csMessage);
+		clientGUI.println("<" + nickname + ">" + " " + msg);
+	}
+
+	// Opcode 7
+	private void confirmPrivateConnection() throws IOException {
+		int nicknameSize = readInt();
+		String nickname = readString(nicknameSize, csNickname);
+		clientGUI.println(
+				nickname + " has requested a private communication with you.\n" + "Accept ? (y/n)");
+		String input = "n"; // TODO get input from clientGui
+		if (input.equals("y")) {
+			acceptPrivateConnection(nickname);
+		} else {
+			refusePrivateConnection(nickname);
+		}
+	}
+
+	// Opcode 9
+	private void answerPrivateConnection() throws IOException {
+		byte accept = readByte();
+		int nicknameSize = readInt();
+		String nickname = readString(nicknameSize, csNickname);
+		if (accept == (byte) 1) {
+			clientGUI.println(nickname + " has refused private communication.");
+			return;
+		}
+		byte ipv = readByte();
+		byte[] addr;
+		if (ipv == (byte) 4) {
+			addr = readAddress(true);
+		} else if (ipv == (byte) 6) {
+			addr = readAddress(false);
+		} else {
+			throw new IllegalStateException("wrong ip version " + ipv);
+		}
+		InetAddress inet = InetAddress.getByAddress(addr);
+		int port = readInt();
+		long id = readLong();
+		// TODO finir implémenter log to client2
+	}
+
+	// Opcode 16
+	private void clientHasLeft() throws IOException {
+		int size = readInt();
+		String nickname = readString(size, csNickname);
+		connectedNicknames.remove(nickname);
+		clientGUI.println(nickname + " has left.");
+	}
+
+	private boolean isConnectedClient(String nickname) {
+		if (!connectedNicknames.contains(nickname)) {
+			clientGUI.println("Unknown nickname: " + nickname);
+			return false;
+		}
+		return true;
+	}
 }
