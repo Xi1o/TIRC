@@ -4,7 +4,7 @@
 
 __RFC__
 * Packet `opcode=7` : SERV gives CLIENT1 information about CLIENT2
-    ```html
+    ```java
 	+--------+------+---------+---------+
 	| opcode | port | IP size | address |
 	+--------+------+---------+---------+
