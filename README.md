@@ -4,13 +4,13 @@
 
 __RFC__
 * Packet `opcode=7` : SERV gives CLIENT1 information about CLIENT2
-    ```java
+```java
 	+--------+------+---------+---------+
 	| opcode | port | IP size | address |
 	+--------+------+---------+---------+
 	|   7    | int  |   int   |  bytes  |
 	+--------+------+---------+---------+
-    ```
+```
     * We don't need to know if the client exists or not (client's responsability).
     * An IP Address is encoded as a sequence of bytes. It will always be preceded by the size of the address, coded in an int.
     * `IPv4 = 32 bits = 4 bytes`
