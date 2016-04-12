@@ -39,7 +39,7 @@ public class Server {
 			printKeys();
 			System.out.println("Starting select");
 			selector.select();
-			if(Thread.interrupted()) {
+			if (Thread.interrupted()) {
 				System.out.println("Shutdown...");
 				shutdown();
 				return;
@@ -108,6 +108,15 @@ public class Server {
 		}
 	}
 
+	/**
+	 * Get the Context of a client specified by nickname.
+	 * @param nickname Nickname of the client to get the context from.
+	 * @return The Context of the client.
+	 */
+	public Context getContextByNickname(String nickname) {
+		return clients.get(nickname);
+	}
+	
 	public int getNumberConnected() {
 		return numberConnected;
 	}
@@ -122,15 +131,14 @@ public class Server {
 				continue;
 			}
 			ByteBuffer bbNickname = context.getBbNickname();
-			if(null == bbNickname) {
+			if (null == bbNickname) {
 				continue;
 			}
 			bbNickname.flip();
 			totalSize += bbNickname.remaining();
 			list.add(bbNickname);
 		}
-		ByteBuffer bbmsg = ByteBuffer
-				.allocate(Byte.BYTES + Integer.BYTES + Integer.BYTES * list.size() + totalSize);
+		ByteBuffer bbmsg = ByteBuffer.allocate(Byte.BYTES + Integer.BYTES + Integer.BYTES * list.size() + totalSize);
 		bbmsg.put((byte) 3);
 		bbmsg.putInt(list.size());
 		list.forEach(bb -> {
@@ -218,13 +226,12 @@ public class Server {
 				System.out.println("\tKey for ServerSocketChannel : " + interestOpsToString(key));
 			} else {
 				SocketChannel sc = (SocketChannel) channel;
-				System.out.println("\tKey for Client " + remoteAddressToString(sc) + " : "
-						+ interestOpsToString(key));
+				System.out.println("\tKey for Client " + remoteAddressToString(sc) + " : " + interestOpsToString(key));
 			}
 
 		}
 	}
-
+	
 	private String remoteAddressToString(SocketChannel sc) {
 		try {
 			return sc.getRemoteAddress().toString();
@@ -242,12 +249,11 @@ public class Server {
 		for (SelectionKey key : selectedKeys) {
 			SelectableChannel channel = key.channel();
 			if (channel instanceof ServerSocketChannel) {
-				System.out.println(
-						"\tServerSocketChannel can perform : " + possibleActionsToString(key));
+				System.out.println("\tServerSocketChannel can perform : " + possibleActionsToString(key));
 			} else {
 				SocketChannel sc = (SocketChannel) channel;
-				System.out.println("\tClient " + remoteAddressToString(sc) + " can perform : "
-						+ possibleActionsToString(key));
+				System.out.println(
+						"\tClient " + remoteAddressToString(sc) + " can perform : " + possibleActionsToString(key));
 			}
 		}
 	}
@@ -265,7 +271,7 @@ public class Server {
 			list.add("WRITE");
 		return String.join(" and ", list);
 	}
-	
+
 	public void shutdown() throws IOException {
 		serverSocketChannel.close();
 	}
@@ -273,4 +279,5 @@ public class Server {
 	public static void usage() {
 		System.out.println("Usage server: port");
 	}
+
 }

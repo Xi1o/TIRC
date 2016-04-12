@@ -26,8 +26,9 @@ public class CommandReader implements Reader {
 	}
 
 	private void init() {
-		readers.put((byte) 0, new LoginReader(bb, Server.MAX_NICKSIZ));
-		readers.put((byte) 4, new StringReader(bb, Server.MAX_MSGSIZ));
+		readers.put((byte) 0, new LoginReader(bb, Server.MAX_NICKSIZ)); // co_req
+		readers.put((byte) 4, new StringReader(bb, Server.MAX_MSGSIZ)); // pub_msg_req
+		readers.put((byte) 6, new StringReader(bb, Server.MAX_NICKSIZ)); // serv_priv_com_req
 	}
 
 	@Override
@@ -55,7 +56,7 @@ public class CommandReader implements Reader {
 
 	private Status processCommand() {
 		Reader reader = readers.get(opcode);
-		if(null == reader) {
+		if (null == reader) {
 			return Status.ERROR;
 		}
 		Status status = reader.process();
