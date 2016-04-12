@@ -26,14 +26,14 @@ __Client.java__
     * Client is now able to read packets `opcode=7`from the server.
 * Added method `packetClientInfoRequest()`.
 * Added method `receiveClientInfoReply()`. Added method `readAddress()`.
-* Planned naming convention :
-    ```
+* Progress :
+```
     OPCODE  NAMING                      STATUS
     6       packetClientInfoRequest()   done
     7       receiveClientInfoReply()    working sysout tests
     8       packetPrivateComRequest()   todo
     9       receivePrivateComReply()    todo
-    ```
+```
 
 __Context.java__
 * Added packet `opcode=6` to the supported received packets. (__+ CommandReader.java__)
