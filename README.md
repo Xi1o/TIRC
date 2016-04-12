@@ -11,10 +11,10 @@ __RFC__
 	|   7    | int  |   int   |  bytes  |
 	+--------+------+---------+---------+
 ```
-    * We don't need to know if the client exists or not (client's responsability).
-    * An IP Address is encoded as a sequence of bytes. It will always be preceded by the size of the address, coded in an int.
-    * `IPv4 = 32 bits = 4 bytes`
-    * `IPv6 = 128 bits = 16 bytes`
+* We don't need to know if the client exists or not (client's responsability).
+* An IP Address is encoded as a sequence of bytes. It will always be preceded by the size of the address, coded in an int.
+* `IPv4 = 32 bits = 4 bytes`
+* `IPv6 = 128 bits = 16 bytes`
 
 __Client.java__
 * `processInput()` :
