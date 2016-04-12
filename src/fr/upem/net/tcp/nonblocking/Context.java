@@ -1,6 +1,7 @@
 package fr.upem.net.tcp.nonblocking;
 
 import java.io.IOException;
+import java.net.InetAddress;
 import java.nio.ByteBuffer;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.SocketChannel;
@@ -25,11 +26,10 @@ public class Context {
 	private final HashMap<Byte, Runnable> commands = new HashMap<>();
 	private String nickname;
 	private ByteBuffer bbNickname;
-	private int port;
+	private int privatePort;
 	private boolean isRegistered = false;
 
-	private Context(ByteBuffer bbin, ByteBuffer bbout, Queue<ByteBuffer> queue, Server server,
-			SocketChannel sc) {
+	private Context(ByteBuffer bbin, ByteBuffer bbout, Queue<ByteBuffer> queue, Server server, SocketChannel sc) {
 		this.bbin = bbin;
 		this.bbout = bbout;
 		this.queue = queue;
@@ -50,21 +50,26 @@ public class Context {
 		this.key = key;
 	}
 
-	public void setPort(int port) {
-		this.port = port;
-	}
-
 	public ByteBuffer getBbNickname() {
 		return bbNickname.asReadOnlyBuffer();
 	}
-	
+
+	private int getPort() {
+		return privatePort;
+	}
+
+	private SocketChannel getSocketChannel() {
+		return sc;
+	}
+
 	private void initCommands() {
 		commands.put((byte) 0, () -> registerNickname());
 		commands.put((byte) 4, () -> receivedMessage());
+		commands.put((byte) 6, () -> receivedClientInfoRequest());
 		commands.put((byte) 15, () -> disconnect());
 	}
 
-	public void doRead() throws IOException {
+	public void doRead() throws IOException { 
 		if (-1 == sc.read(bbin)) {
 			Server.silentlyClose(sc);
 			unregister();
@@ -126,7 +131,7 @@ public class Context {
 
 	private void registerNickname() {
 		nickname = (String) commandReader.get();
-		port = (int) commandReader.get();
+		privatePort = (int) commandReader.get();
 		if (nickname.length() > Server.MAX_NICKSIZ) {
 			Server.silentlyClose(sc);
 			isClosed = true;
@@ -157,8 +162,8 @@ public class Context {
 		ByteBuffer bbmsg = (ByteBuffer) commandReader.get();
 		bbmsg.flip();
 		bbNickname.flip();
-		ByteBuffer bb = ByteBuffer.allocate(Byte.BYTES + Integer.BYTES + bbNickname.remaining()
-				+ Integer.BYTES + bbmsg.remaining());
+		ByteBuffer bb = ByteBuffer
+				.allocate(Byte.BYTES + Integer.BYTES + bbNickname.remaining() + Integer.BYTES + bbmsg.remaining());
 		bb.put((byte) 5);
 		bb.putInt(bbNickname.remaining());
 		bb.put(bbNickname);
@@ -167,8 +172,24 @@ public class Context {
 		server.sendMessage(bb);
 	}
 
+	private void receivedClientInfoRequest() {
+		ByteBuffer bbDestNickname = (ByteBuffer) commandReader.get();
+		bbDestNickname.flip();
+		String destNickname = Server.CHARSET_NICKNAME.decode(bbDestNickname).toString();
+		Context destContext = server.getContextByNickname(destNickname);
+
+		// build reply packet
+		bbout.put((byte) 7);
+		bbout.putInt(destContext.getPort());
+		// put IP address
+		InetAddress inet = destContext.getSocketChannel().socket().getInetAddress();
+		byte[] addr = inet.getAddress();
+		bbout.putInt(addr.length); // length is always : IPv4 = 4, IPv6 = 16
+		bbout.put(addr);
+	}
+
 	private void confirmConnection(boolean accept) {
-		byte confirmationByte = (accept) ? (byte) 0:1;
+		byte confirmationByte = (accept) ? (byte) 0 : 1;
 		bbout.put((byte) 1);
 		bbout.put((byte) confirmationByte);
 		bbout.putInt(server.getNumberConnected());
