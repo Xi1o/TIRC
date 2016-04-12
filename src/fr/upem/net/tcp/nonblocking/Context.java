@@ -69,7 +69,7 @@ public class Context {
 		commands.put((byte) 15, () -> disconnect());
 	}
 
-	public void doRead() throws IOException {
+	public void doRead() throws IOException { 
 		if (-1 == sc.read(bbin)) {
 			Server.silentlyClose(sc);
 			unregister();
