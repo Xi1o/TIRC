@@ -144,6 +144,7 @@ public class Context {
 
 	// Opcode 0
 	private void registerNickname() {
+		//TODO ERROR class cast integer to string
 		nickname = (String) commandReader.get();
 		privatePort = (int) commandReader.get();
 		if (nickname.length() > Server.MAX_NICKSIZ) {
@@ -255,7 +256,7 @@ public class Context {
 		bb.put(ipVersion);
 		bb.put(addr);
 		bb.putInt(port);
-		bb.putLong(port);
+		bb.putLong(id);
 		registerMessage(bb);
 	}
 

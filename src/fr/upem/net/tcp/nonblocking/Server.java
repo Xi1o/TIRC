@@ -34,6 +34,11 @@ public class Server {
 		selectedKeys = selector.selectedKeys();
 	}
 
+	/**
+	 * Launch server in ready state.
+	 * 
+	 * @throws IOException If some other I/O error occurs on server side.
+	 */
 	public void launch() throws IOException {
 		serverSocketChannel.configureBlocking(false);
 		serverSocketChannel.register(selector, SelectionKey.OP_ACCEPT);
