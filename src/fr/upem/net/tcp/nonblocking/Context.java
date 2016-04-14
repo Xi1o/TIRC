@@ -1,6 +1,7 @@
 package fr.upem.net.tcp.nonblocking;
 
 import java.io.IOException;
+import java.net.Inet6Address;
 import java.net.InetAddress;
 import java.nio.ByteBuffer;
 import java.nio.channels.SelectionKey;
@@ -29,7 +30,10 @@ public class Context {
 	private int privatePort;
 	private boolean isRegistered = false;
 
-	private Context(ByteBuffer bbin, ByteBuffer bbout, Queue<ByteBuffer> queue, Server server, SocketChannel sc) {
+	/* Core */
+
+	private Context(ByteBuffer bbin, ByteBuffer bbout, Queue<ByteBuffer> queue, Server server,
+			SocketChannel sc) {
 		this.bbin = bbin;
 		this.bbout = bbout;
 		this.queue = queue;
@@ -54,22 +58,15 @@ public class Context {
 		return bbNickname.asReadOnlyBuffer();
 	}
 
-	private int getPort() {
-		return privatePort;
-	}
-
-	private SocketChannel getSocketChannel() {
-		return sc;
-	}
-
 	private void initCommands() {
 		commands.put((byte) 0, () -> registerNickname());
 		commands.put((byte) 4, () -> receivedMessage());
-		commands.put((byte) 6, () -> receivedClientInfoRequest());
+		commands.put((byte) 6, () -> privateCommunicationRequest());
+		commands.put((byte) 8, () -> privateCommunicationAnswer());
 		commands.put((byte) 15, () -> disconnect());
 	}
 
-	public void doRead() throws IOException { 
+	public void doRead() throws IOException {
 		if (-1 == sc.read(bbin)) {
 			Server.silentlyClose(sc);
 			unregister();
@@ -77,7 +74,6 @@ public class Context {
 		}
 		switch (commandReader.process()) {
 		case ERROR:
-			System.err.println("client error");
 			Server.silentlyClose(sc);
 			unregister();
 			return;
@@ -129,7 +125,26 @@ public class Context {
 		key.interestOps(key.interestOps() | SelectionKey.OP_WRITE);
 	}
 
+	private void unregister() {
+		Server.silentlyClose(sc);
+		key.cancel();
+		if (isRegistered) {
+			server.unregisterClient(nickname, bbNickname);
+		}
+	}
+
+	private void confirmConnection(boolean accept) {
+		byte confirmationByte = (accept) ? (byte) 0 : 1;
+		bbout.put((byte) 1);
+		bbout.put((byte) confirmationByte);
+		bbout.putInt(server.getNumberConnected());
+	}
+
+	/* Commands */
+
+	// Opcode 0
 	private void registerNickname() {
+		//TODO ERROR class cast integer to string
 		nickname = (String) commandReader.get();
 		privatePort = (int) commandReader.get();
 		if (nickname.length() > Server.MAX_NICKSIZ) {
@@ -150,20 +165,13 @@ public class Context {
 		}
 	}
 
-	private void unregister() {
-		Server.silentlyClose(sc);
-		key.cancel();
-		if (isRegistered) {
-			server.unregisterClient(nickname, bbNickname);
-		}
-	}
-
+	// Opcode 4
 	private void receivedMessage() {
 		ByteBuffer bbmsg = (ByteBuffer) commandReader.get();
 		bbmsg.flip();
 		bbNickname.flip();
-		ByteBuffer bb = ByteBuffer
-				.allocate(Byte.BYTES + Integer.BYTES + bbNickname.remaining() + Integer.BYTES + bbmsg.remaining());
+		ByteBuffer bb = ByteBuffer.allocate(Byte.BYTES + Integer.BYTES + bbNickname.remaining()
+				+ Integer.BYTES + bbmsg.remaining());
 		bb.put((byte) 5);
 		bb.putInt(bbNickname.remaining());
 		bb.put(bbNickname);
@@ -172,40 +180,41 @@ public class Context {
 		server.sendMessage(bb);
 	}
 
-	private void receivedClientInfoRequest() {
+	// Opcode 6
+	private void privateCommunicationRequest() {
 		ByteBuffer bbDestNickname = (ByteBuffer) commandReader.get();
 		bbDestNickname.flip();
 		String destNickname = Server.CHARSET_NICKNAME.decode(bbDestNickname).toString();
-		Context destContext = server.getContextByNickname(destNickname);
-
-		// build reply packet
-		bbout.put((byte) 7);
-		bbout.putInt(destContext.getPort());
-		// put IP address
-		InetAddress inet = destContext.getSocketChannel().socket().getInetAddress();
-		byte[] addr = inet.getAddress();
-		bbout.putInt(addr.length); // length is always : IPv4 = 4, IPv6 = 16
-		bbout.put(addr);
+		server.askPermissionPrivateConnection(nickname, destNickname);
 	}
 
-	private void confirmConnection(boolean accept) {
-		byte confirmationByte = (accept) ? (byte) 0 : 1;
-		bbout.put((byte) 1);
-		bbout.put((byte) confirmationByte);
-		bbout.putInt(server.getNumberConnected());
+	// Opcode 8
+	private void privateCommunicationAnswer() {
+		Byte accept = (Byte) commandReader.get();
+		String withNickname = (String) commandReader.get();
+		if (accept != (byte) 0) { // refuse
+			server.refusePrivateConnection(nickname, withNickname);
+			return;
+		}
+		long sessionId = (long) commandReader.get();
+		InetAddress inet = sc.socket().getInetAddress();
+		server.acceptPrivateConnection(nickname, withNickname, inet, privatePort, sessionId);
 	}
 
-	public void clientHasJoined(String nickname) {
-		ByteBuffer bblogin = Server.CHARSET_NICKNAME.encode(nickname);
-		ByteBuffer bbmsg = ByteBuffer.allocate(Byte.BYTES + Integer.BYTES + bblogin.remaining());
-		bbmsg.put((byte) 2);
-		bbmsg.putInt(bblogin.remaining());
-		bbmsg.put(bblogin);
-		registerMessage(bbmsg);
-	}
-
+	// Opcode 15
 	private void disconnect() {
 		unregister();
+	}
+
+	/* Notification from server */
+
+	public void clientHasJoined(String nickname) {
+		ByteBuffer bbNickname = Server.CHARSET_NICKNAME.encode(nickname);
+		ByteBuffer bbmsg = ByteBuffer.allocate(Byte.BYTES + Integer.BYTES + bbNickname.remaining());
+		bbmsg.put((byte) 2);
+		bbmsg.putInt(bbNickname.remaining());
+		bbmsg.put(bbNickname);
+		registerMessage(bbmsg);
 	}
 
 	public void clientHasLeft(ByteBuffer bbNickname) {
@@ -216,5 +225,49 @@ public class Context {
 		bbmsg.putInt(size);
 		bbmsg.put(bbNickname);
 		registerMessage(bbmsg);
+	}
+
+	public void askPrivateCommunication(String fromNickname) {
+		ByteBuffer bbNickname = Server.CHARSET_NICKNAME.encode(fromNickname);
+		int size = bbNickname.remaining();
+		ByteBuffer bbmsg = ByteBuffer.allocate(Byte.BYTES + Integer.BYTES + size);
+		bbmsg.put((byte) 7);
+		bbmsg.putInt(size);
+		bbmsg.put(bbNickname);
+		registerMessage(bbmsg);
+	}
+
+	public void acceptPrivateCommunication(String fromNickName, InetAddress inet, int port,
+			long id) {
+		ByteBuffer bbNickname = Server.CHARSET_NICKNAME.encode(fromNickName);
+		byte[] addr = inet.getAddress();
+		int nicknameSize = bbNickname.remaining();
+		int addrSize = addr.length;
+		Byte ipVersion = 4;
+		if (inet instanceof Inet6Address) {
+			ipVersion = 6;
+		}
+		ByteBuffer bb = ByteBuffer.allocate(Byte.BYTES + Byte.BYTES + Integer.BYTES + nicknameSize
+				+ Byte.BYTES + addrSize + Integer.BYTES + Long.BYTES);
+		bb.put((byte) 9);
+		bb.put((byte) 0);
+		bb.putInt(nicknameSize);
+		bb.put(bbNickname);
+		bb.put(ipVersion);
+		bb.put(addr);
+		bb.putInt(port);
+		bb.putLong(id);
+		registerMessage(bb);
+	}
+
+	public void refusePrivateCommunication(String fromNickName) {
+		ByteBuffer bbNickname = Server.CHARSET_NICKNAME.encode(fromNickName);
+		int nicknameSize = bbNickname.remaining();
+		ByteBuffer bb = ByteBuffer.allocate(Byte.BYTES + Byte.BYTES + Integer.BYTES + nicknameSize);
+		bb.put((byte) 9);
+		bb.put((byte) 1);
+		bb.putInt(nicknameSize);
+		bb.put(bbNickname);
+		registerMessage(bb);
 	}
 }

@@ -11,7 +11,7 @@ public class MainServer {
 			Server.usage();
 			return;
 		}
-		Thread threadServer = new Thread( () -> {
+		Thread threadServer = new Thread(() -> {
 			try {
 				Server server = new Server(Integer.parseInt(args[0]));
 				server.launch();
@@ -23,10 +23,10 @@ public class MainServer {
 			return;
 		});
 		threadServer.start();
-		
+
 		Scanner scanner = new Scanner(System.in);
-		while(scanner.hasNextLine()) {
-		
+		while (scanner.hasNextLine()) {
+
 		}
 		threadServer.interrupt();
 		scanner.close();

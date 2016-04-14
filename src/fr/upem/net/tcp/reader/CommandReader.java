@@ -29,6 +29,7 @@ public class CommandReader implements Reader {
 		readers.put((byte) 0, new LoginReader(bb, Server.MAX_NICKSIZ)); // co_req
 		readers.put((byte) 4, new StringReader(bb, Server.MAX_MSGSIZ)); // pub_msg_req
 		readers.put((byte) 6, new StringReader(bb, Server.MAX_NICKSIZ)); // serv_priv_com_req
+		readers.put((byte) 8, new PrivateConnectionReader(bb, Server.MAX_NICKSIZ));
 	}
 
 	@Override

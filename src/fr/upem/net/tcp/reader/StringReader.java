@@ -44,6 +44,7 @@ public class StringReader implements Reader {
 			}
 			processInt();
 			if (size <= 0 || size >= maxSize) {
+				System.err.println("Invalide size: " + size + " / " + maxSize);
 				return Status.ERROR;
 			}
 			state = State.READSTR;
