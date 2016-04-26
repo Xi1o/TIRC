@@ -17,6 +17,7 @@ import java.util.Set;
 public class Server {
 	public static final int MAX_NICKSIZ = 15;
 	public static final int MAX_MSGSIZ = 2048;
+	public static final int MAX_MSG = 100;
 	public static final Charset CHARSET_NICKNAME = Charset.forName("ASCII");
 	public static final Charset CHARSET_MSG = Charset.forName("UTF-8");
 	private final ServerSocketChannel serverSocketChannel;
@@ -144,7 +145,7 @@ public class Server {
 					// server key
 					continue;
 				}
-				context.clientHasLeft(bbNickname);
+				context.clientHasLeft(bbNickname.duplicate());
 			}
 		}
 	}
@@ -158,7 +159,7 @@ public class Server {
 				// server key
 				continue;
 			}
-			context.registerMessage(bbmsg);
+			context.registerMessage(bbmsg.duplicate());
 		}
 	}
 
@@ -174,7 +175,7 @@ public class Server {
 	public void unregisterClient(String nickname, ByteBuffer bbNickname) {
 		if (null != clients.remove(nickname)) {
 			numberConnected--;
-			notifyClientHasLeaved(bbNickname);
+			notifyClientHasLeaved(bbNickname.duplicate());
 		}
 	}
 

@@ -71,13 +71,15 @@ public class PrivateConnectionReader implements Reader {
 
 	@Override
 	public Object get() {
-		if (nbget == 0) {
+		if (nbget%3 == 0) {
 			nbget++;
 			return accept;
-		} else if (nbget == 1) {
+		} else if (nbget%3 == 1) {
 			nbget++;
+			System.out.println("yaaaaaaaaaaaaaaa");
 			return fromNickname;
 		}
+		nbget++;
 		return sessionId;
 	}
 

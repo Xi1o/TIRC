@@ -36,16 +36,19 @@ public class Client {
 	private final String nickname;
 	private final int listenport;
 	private int numberConnected;
-	private Thread inputThread;
+	private Thread readThread;
 	private Thread serverThread;
 	private Thread mainThread;
-	/*Handler call right function depending on opcode.*/
+	/* Handler call right function depending on opcode. */
 	private final HashMap<Byte, Handeable> handler = new HashMap<>();
-	/*Associate a thread to read from a SC to a nickname for private connection.*/
+	/*
+	 * Associate a thread to read from a SC to a nickname for private
+	 * connection.
+	 */
 	private final HashMap<String, Thread> privateConnectionThreads = new HashMap<>();
-	/*Set of nicknames of connected clients.*/
+	/* Set of nicknames of connected clients. */
 	private final HashSet<String> connectedNicknames = new HashSet<>();
-	/*Private connections to client's server*/
+	/* Private connections to client's server */
 	private final HashMap<String, SocketChannel> privateConnections = new HashMap<>();
 	private boolean hasQuit;
 	private final ClientGUI clientGUI = new ClientGUI(this);
@@ -111,7 +114,7 @@ public class Client {
 		handler.put((byte) 5, () -> receivedMessage());
 		handler.put((byte) 7, () -> confirmPrivateConnection());
 		handler.put((byte) 9, () -> answerPrivateConnection());
-		handler.put((byte) 16, () -> clientHasLeft());
+		handler.put((byte) 17, () -> clientHasLeft());
 	}
 
 	/**
@@ -121,9 +124,12 @@ public class Client {
 	 */
 	public void close() throws IOException {
 		sc.close();
-		inputThread.interrupt();
+		readThread.interrupt();
 		clientServer.shutdownNow();
 		serverThread.interrupt();
+		for (String key : privateConnectionThreads.keySet()) {
+			privateConnectionThreads.get(key).interrupt();
+		}
 	}
 
 	/**
@@ -134,11 +140,12 @@ public class Client {
 	}
 
 	/**
-	 * Launch client: handle received packets / start input thread / start
-	 * server thread
+	 * Launch client: handle received packets / read thread / start server
+	 * thread
 	 */
 	public void launch() {
-		inputThread = new Thread(() -> {
+		// To do
+		readThread = new Thread(() -> {
 			try {
 				while (true) {
 					Byte opcode = readByte(sc, bbin);
@@ -159,8 +166,7 @@ public class Client {
 				System.err.println("Client's server: " + ioe);
 			}
 		});
-
-		inputThread.start();
+		readThread.start();
 		serverThread.start();
 	}
 
@@ -189,22 +195,31 @@ public class Client {
 			if (!hasAtLeastArgs(argsInput, 2) || !isConnectedClient(argsInput[1])) {
 				break;
 			}
-			if (argsInput[1].equals(nickname)) {
+			String toNickname = argsInput[1];
+			if (toNickname.equals(nickname)) {
 				clientGUI.println("Cannot request a private communication with yourself.");
 				break;
 			}
-			packetClientInfoRequest(argsInput[1]);
-			break;
-		case "/w":
-			if (!hasAtLeastArgs(argsInput, 3) || !isConnectedClient(argsInput[1])) {
+			if (isPrivateConnected(toNickname)) {
+				clientGUI.println("You're already connected with " + toNickname + ".");
 				break;
 			}
-			if (argsInput[1].equals(nickname)) {
-				clientGUI.println("Cannot send a private private to you.");
+			packetClientInfoRequest(toNickname);
+			break;
+		case "/w":
+			if (!hasAtLeastArgs(argsInput, 3)) {
+				break;
+			}
+			toNickname = argsInput[1];
+			if (toNickname.equals(nickname)) {
+				clientGUI.println("Cannot send a private message to yourself.");
 				break;
 			}
 			String msg = String.join(" ", Arrays.copyOfRange(argsInput, 2, argsInput.length));
-			if (!sendPrivateMessage(argsInput[1], msg)) {
+			if (!sendPrivateMessage(toNickname, msg)) {
+				clientGUI.println(
+						"You must request a private connection before: /private " + toNickname);
+				bbout.clear();
 				break;
 			}
 			clientGUI.println("*" + nickname + "* " + msg);
@@ -215,13 +230,15 @@ public class Client {
 				break;
 			}
 			sendPrivateDisconnection(argsInput[1]);
+			bbout.clear();
 			break;
 		default:
-			if (argsInput[0].startsWith("/")) {
+			String command = argsInput[0];
+			if (command.startsWith("/")) {
 				clientGUI.println("Unknown command: " + argsInput[0]);
 				break;
 			}
-			packetMessage(argsInput[0]);
+			packetMessage(command);
 			break;
 		}
 		// sending packet
@@ -332,13 +349,15 @@ public class Client {
 
 	/* Request to another client */
 
-	private SocketChannel getClientSocketChannel(String toNickname) {
-		SocketChannel toSc = privateConnections.get(toNickname);
-		// If couldn't find here, look in server.
-		if (null == toSc) {
-			toSc = clientServer.getSocketChannelFromNickname(toNickname);
+	private boolean writePrivate(String toNickname) throws IOException {
+		SocketChannel clientSc = privateConnections.get(toNickname);
+		// If could not find socket channel try with server
+		if (null == clientSc) {
+			return clientServer.sendMessage(toNickname, bbout);
 		}
-		return toSc;
+		bbout.flip();
+		clientSc.write(bbout);
+		return true;
 	}
 
 	private void clientGiveId(SocketChannel sc, long id) throws IOException {
@@ -348,34 +367,17 @@ public class Client {
 	}
 
 	private boolean sendPrivateMessage(String toNickname, String msg) throws IOException {
-		SocketChannel toSc = getClientSocketChannel(toNickname);
-		if (null == toSc) {
-			clientGUI.println("No private connection with " + toNickname + ".");
-			return false;
-		}
 		packetSendPrivateMessage(msg);
-		bbout.flip();
-		toSc.write(bbout);
-		return true;
+		return writePrivate(toNickname);
 	}
 
 	private boolean sendPrivateDisconnection(String toNickname) throws IOException {
-		SocketChannel toSc = privateConnections.get(toNickname);
-		if(null != toSc) {
-			packetSendPrivateDisconnection();
-			bbout.flip();
-			toSc.write(bbout); //TODO bugs ??
-			toSc.close();
-			privateConnections.remove(toNickname);
-		} else {
-			toSc = clientServer.getSocketChannelFromNickname(toNickname);
-			if(null == toSc) {
-				clientGUI.println("No private connection with " + toNickname + ".");
-				return false;
-			}
-			clientServer.closePrivateConnection(toNickname);
+		packetSendPrivateDisconnection();
+		if (!writePrivate(toNickname)) {
+			clientGUI.println("No private connection with " + toNickname + ".");
+			return false;
 		}
-
+		privateDisconnect(toNickname);
 		return true;
 	}
 
@@ -415,7 +417,7 @@ public class Client {
 	 */
 	private void packetDisconnect() {
 		bbout.clear();
-		bbout.put((byte) 15);
+		bbout.put((byte) 16);
 	}
 
 	/**
@@ -589,7 +591,10 @@ public class Client {
 	private void privateConnect(String clientNickname, InetAddress iaServer, int port, long id) {
 		InetSocketAddress server = new InetSocketAddress(iaServer, port);
 		try {
-			SocketChannel clientSc = SocketChannel.open(server);
+			SocketChannel clientSc = SocketChannel.open(server); // TODO BUG si
+																	// non
+																	// localhost,
+																	// bloque
 			clientGiveId(clientSc, id);
 			addSocketChannelReader(clientSc, clientNickname);
 			privateConnections.put(clientNickname, clientSc);
@@ -599,6 +604,21 @@ public class Client {
 			System.err.println("Could not connect to " + clientNickname + ": " + ioe);
 			return;
 		}
+	}
+
+	private boolean isPrivateConnected(String clientNickname) {
+		return (privateConnections.containsKey(clientNickname)
+				|| clientServer.isConnected(clientNickname));
+	}
+
+	private void privateDisconnect(String clientNickname) throws IOException {
+		SocketChannel clientSc = privateConnections.get(clientNickname);
+		if (null != clientSc) {
+			privateConnections.remove(clientNickname);
+			clientSc.close();
+			return;
+		}
+		clientServer.closePrivateConnection(clientNickname);
 	}
 
 	private void addSocketChannelReader(SocketChannel sc, String clientNickname) {

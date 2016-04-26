@@ -57,7 +57,7 @@ public class LoginReader implements Reader {
 
 	@Override
 	public Object get() {
-		if (nbget++ == 0) {
+		if (nbget++%2 == 0) {
 			return nickname;
 		}
 		return port;

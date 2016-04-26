@@ -63,7 +63,7 @@ public class Context {
 		commands.put((byte) 4, () -> receivedMessage());
 		commands.put((byte) 6, () -> privateCommunicationRequest());
 		commands.put((byte) 8, () -> privateCommunicationAnswer());
-		commands.put((byte) 15, () -> disconnect());
+		commands.put((byte) 16, () -> disconnect());
 	}
 
 	public void doRead() throws IOException {
@@ -121,6 +121,10 @@ public class Context {
 	}
 
 	public void registerMessage(ByteBuffer bbmsg) {
+		if (queue.size() > Server.MAX_MSG) {
+			isClosed = true;
+			//TODO
+		}
 		queue.offer(Objects.requireNonNull(bbmsg));
 		key.interestOps(key.interestOps() | SelectionKey.OP_WRITE);
 	}
@@ -144,7 +148,7 @@ public class Context {
 
 	// Opcode 0
 	private void registerNickname() {
-		//TODO ERROR class cast integer to string
+		// TODO ERROR class cast integer to string
 		nickname = (String) commandReader.get();
 		privatePort = (int) commandReader.get();
 		if (nickname.length() > Server.MAX_NICKSIZ) {
@@ -221,7 +225,7 @@ public class Context {
 		bbNickname.flip();
 		int size = bbNickname.remaining();
 		ByteBuffer bbmsg = ByteBuffer.allocate(Byte.BYTES + Integer.BYTES + size);
-		bbmsg.put((byte) 16);
+		bbmsg.put((byte) 17);
 		bbmsg.putInt(size);
 		bbmsg.put(bbNickname);
 		registerMessage(bbmsg);

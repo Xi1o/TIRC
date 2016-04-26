@@ -1,5 +1,10 @@
 package fr.upem.net.tcp.client;
 
+import static fr.upem.net.tcp.client.ScReaders.readByte;
+import static fr.upem.net.tcp.client.ScReaders.readInt;
+import static fr.upem.net.tcp.client.ScReaders.readLong;
+import static fr.upem.net.tcp.client.ScReaders.readString;
+
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
@@ -7,9 +12,7 @@ import java.nio.channels.AsynchronousCloseException;
 import java.nio.channels.ClosedChannelException;
 import java.nio.channels.ServerSocketChannel;
 import java.nio.channels.SocketChannel;
-import java.util.HashMap;
 import java.util.concurrent.ConcurrentHashMap;
-import static fr.upem.net.tcp.client.ScReaders.*;
 
 public class ClientServer {
 	private static final int MAX_THREADS = 10;
@@ -18,8 +21,8 @@ public class ClientServer {
 	private final Thread[] threads;
 	private final Object lock = new Object();
 	private final ConcurrentHashMap<String, Long> privateConnectionsId = new ConcurrentHashMap<>();
-	private final HashMap<SocketChannel, String> nicknamesConnected = new HashMap<>();
-	private final HashMap<String, SocketChannel> socketChannelClients = new HashMap<>();
+	private final ConcurrentHashMap<SocketChannel, String> nicknamesConnected = new ConcurrentHashMap<>();
+	private final ConcurrentHashMap<String, SocketChannel> socketChannelClients = new ConcurrentHashMap<>();
 	private ClientGUI clientGUI;
 
 	/* Core */
@@ -29,6 +32,7 @@ public class ClientServer {
 		this.serverSocketChannel = serverSocketChannel;
 		this.scs = scs;
 		this.threads = threads;
+
 	}
 
 	public static ClientServer create(int port) throws IOException {
@@ -112,10 +116,11 @@ public class ClientServer {
 			}
 		}
 	}
-	
+
 	public void closePrivateConnection(String nickname) throws IOException {
 		SocketChannel sc = socketChannelClients.get(nickname);
-		sc.write(packetSendPrivateDisctonnection());
+		socketChannelClients.remove(nickname);
+		nicknamesConnected.remove(sc);
 		silentlyClose(sc);
 	}
 
@@ -153,13 +158,21 @@ public class ClientServer {
 		}
 		return true;
 	}
-	
-	public SocketChannel getSocketChannelFromNickname(String nickname) {
-		synchronized (lock) {
-			return socketChannelClients.get(nickname);
+
+	public boolean sendMessage(String toNickname, ByteBuffer bbmsg) throws IOException {
+		SocketChannel sc = socketChannelClients.get(toNickname);
+		if (null == sc) {
+			return false;
 		}
+		bbmsg.flip();
+		sc.write(bbmsg);
+		return true;
 	}
 	
+	public boolean isConnected(String clientNickname) {
+		return socketChannelClients.containsKey(clientNickname);
+	}
+
 	/* Request from client */
 
 	private boolean authentication(SocketChannel sc, ByteBuffer bb) throws IOException {
@@ -185,15 +198,6 @@ public class ClientServer {
 		clientGUI.println("To communicate with him privately use: /w " + clientNickname);
 		return true;
 	}
-
-	/* Request to client */
-	
-	private static ByteBuffer packetSendPrivateDisctonnection() {
-		ByteBuffer bb = ByteBuffer.allocate(Byte.BYTES);
-		bb.put((byte) 12);
-		return bb;
-	}
-
 	/* handle opcode */
 
 	// Opcode 11
@@ -201,6 +205,6 @@ public class ClientServer {
 			throws IOException {
 		int msgSize = readInt(sc, bb);
 		String msg = readString(sc, bb, msgSize, Client.CS_MESSAGE);
-		clientGUI.println("*"+ nickname +"* "+msg);
+		clientGUI.println("*" + nickname + "* " + msg);
 	}
 }

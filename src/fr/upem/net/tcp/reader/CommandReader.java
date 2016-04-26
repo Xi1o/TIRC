@@ -52,7 +52,8 @@ public class CommandReader implements Reader {
 
 	@Override
 	public void reset() {
-		state = State.OPCODE;
+		//state = State.OPCODE;
+		readers.get(opcode).reset();
 	}
 
 	private Status processCommand() {
@@ -60,12 +61,13 @@ public class CommandReader implements Reader {
 		if (null == reader) {
 			return Status.ERROR;
 		}
+		reader.reset();
 		Status status = reader.process();
 		if (status != Status.DONE) {
 			return status;
 		}
 		commands.get(opcode).run();
-		reset();
+		state = State.OPCODE;
 		return Status.DONE;
 	}
 
