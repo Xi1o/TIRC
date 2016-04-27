@@ -13,8 +13,14 @@ import java.nio.charset.Charset;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Set;
+import java.util.logging.FileHandler;
+import java.util.logging.Level;
+import java.util.logging.Logger;
+import java.util.logging.SimpleFormatter;
 
 public class Server {
+	private static final Logger LOGGER = Logger.getLogger("ServerLogger");
+	private FileHandler fh;
 	/** Maximum nickname size in bytes (or length in ASCII). **/
 	public static final int MAX_NICKSIZ = 15;
 	/** Maximum message size in bytes. **/
@@ -55,29 +61,40 @@ public class Server {
 	 * @throws IOException
 	 *             If some other I/O error occurs on server side.
 	 */
-	public void launch() throws IOException {
-		serverSocketChannel.configureBlocking(false);
-		serverSocketChannel.register(selector, SelectionKey.OP_ACCEPT);
-		Set<SelectionKey> selectedKeys = selector.selectedKeys();
-		while (!Thread.interrupted()) {
-			printKeys();
-			System.out.println("Starting select");
-			selector.select();
-			if (Thread.interrupted()) {
-				System.out.println("Shutdown...");
-				shutdown();
-				return;
+	public void launch() {
+		try {
+			fh = new FileHandler("./logs", true);
+			LOGGER.addHandler(fh);
+			LOGGER.setLevel(Level.ALL);
+			SimpleFormatter formatter = new SimpleFormatter();
+			fh.setFormatter(formatter);
+
+			serverSocketChannel.configureBlocking(false);
+			serverSocketChannel.register(selector, SelectionKey.OP_ACCEPT);
+			Set<SelectionKey> selectedKeys = selector.selectedKeys();
+			LOGGER.info("Server launched");
+			while (!Thread.interrupted()) {
+				printKeys();
+				LOGGER.fine("Starting select");
+				selector.select();
+				if (Thread.interrupted()) {
+					LOGGER.info("Shutdown");
+					shutdown();
+					return;
+				}
+				LOGGER.fine("Select finished");
+				printSelectedKey();
+				try {
+					processSelectedKeys();
+				} catch (IOException e) {
+					LOGGER.info("Shutdown");
+					shutdown();
+					return;
+				}
+				selectedKeys.clear();
 			}
-			System.out.println("Select finished");
-			printSelectedKey();
-			try {
-				processSelectedKeys();
-			} catch (IOException e) {
-				System.out.println("Shutdown...");
-				shutdown();
-				return;
-			}
-			selectedKeys.clear();
+		} catch (IOException ioe) {
+			LOGGER.log(Level.SEVERE, ioe.toString(), ioe);
 		}
 	}
 
@@ -102,6 +119,7 @@ public class Server {
 				}
 			} catch (IOException ioe) {
 				SocketChannel sc = (SocketChannel) key.channel();
+				LOGGER.warning(remoteAddressToString(sc) + ": " + ioe.toString());
 				silentlyClose(sc);
 			}
 		}
@@ -124,6 +142,7 @@ public class Server {
 		Context context = Context.create(this, sc);
 		SelectionKey clientKey = sc.register(selector, SelectionKey.OP_READ, context);
 		context.setSelectionKey(clientKey);
+		LOGGER.info(remoteAddressToString(sc) + " connected");
 	}
 
 	/**
@@ -140,7 +159,7 @@ public class Server {
 	}
 
 	/**
-	 * Perfor a write operation on {@link SelectionKey}.
+	 * Perform a write operation on {@link SelectionKey}.
 	 * 
 	 * @param key
 	 *            to write to
@@ -258,6 +277,7 @@ public class Server {
 		}
 		numberConnected++;
 		notifyClientHasJoined(nickname);
+		LOGGER.info(context.remoteAddressToString() + " has joined as " + nickname);
 		return true;
 	}
 
@@ -269,10 +289,11 @@ public class Server {
 	 * @param bbNickname
 	 *            {@link ByteBuffer} containing unregistered client's nickname.
 	 */
-	public void unregisterClient(String nickname, ByteBuffer bbNickname) {
+	public void unregisterClient(String nickname, Context context) {
 		if (null != clients.remove(nickname)) {
 			numberConnected--;
-			notifyClientHasLeft(bbNickname.duplicate());
+			notifyClientHasLeft(context.getBbNickname().duplicate());
+			LOGGER.info(nickname + " has left");
 		}
 	}
 
@@ -330,8 +351,7 @@ public class Server {
 	public void askPermissionPrivateConnection(String fromNickname, String toNickname) {
 		Context context = clients.get(toNickname);
 		if (null == context) {
-			// TODO LOG
-			System.err.println("Asking for private connection from " + fromNickname
+			LOGGER.warning("Asking for private connection from " + fromNickname
 					+ "with unknown client " + toNickname);
 			return;
 		}
@@ -356,8 +376,7 @@ public class Server {
 			int port, long id) {
 		Context context = clients.get(toNickname);
 		if (null == context) {
-			// TODO LOG
-			System.err.println("Accept for private connection from " + fromNickname
+			LOGGER.warning("Accept for private connection from " + fromNickname
 					+ "with unknown client " + toNickname);
 			return;
 		}
@@ -375,8 +394,7 @@ public class Server {
 	public void refusePrivateConnection(String fromNickname, String toNickname) {
 		Context context = clients.get(toNickname);
 		if (null == context) {
-			// TODO LOG
-			System.err.println("Refuse for private connection from " + fromNickname
+			LOGGER.warning("Refuse for private connection from " + fromNickname
 					+ "with unknown client " + toNickname);
 			return;
 		}
@@ -414,17 +432,17 @@ public class Server {
 	private void printKeys() {
 		Set<SelectionKey> selectionKeySet = selector.keys();
 		if (selectionKeySet.isEmpty()) {
-			System.out.println("The selector contains no key : this should not happen!");
+			LOGGER.fine("The selector contains no key : this should not happen!");
 			return;
 		}
-		System.out.println("The selector contains:");
+		LOGGER.fine("The selector contains:");
 		for (SelectionKey key : selectionKeySet) {
 			SelectableChannel channel = key.channel();
 			if (channel instanceof ServerSocketChannel) {
-				System.out.println("\tKey for ServerSocketChannel : " + interestOpsToString(key));
+				LOGGER.fine("\tKey for ServerSocketChannel : " + interestOpsToString(key));
 			} else {
 				SocketChannel sc = (SocketChannel) channel;
-				System.out.println("\tKey for Client " + remoteAddressToString(sc) + " : "
+				LOGGER.fine("\tKey for Client " + remoteAddressToString(sc) + " : "
 						+ interestOpsToString(key));
 			}
 
@@ -438,10 +456,10 @@ public class Server {
 	 *            to convert in {@code String}
 	 * @return {@code String} of the {@link SocketChannel}
 	 */
-	private String remoteAddressToString(SocketChannel socketChannel) {
+	public static String remoteAddressToString(SocketChannel socketChannel) {
 		try {
 			return socketChannel.getRemoteAddress().toString();
-		} catch (IOException e) {
+		} catch (IOException ioe) {
 			return "???";
 		}
 	}
@@ -451,18 +469,17 @@ public class Server {
 	 */
 	private void printSelectedKey() {
 		if (selectedKeys.isEmpty()) {
-			System.out.println("There were not selected keys.");
+			LOGGER.fine("There were not selected keys.");
 			return;
 		}
-		System.out.println("The selected keys are :");
+		LOGGER.fine("The selected keys are :");
 		for (SelectionKey key : selectedKeys) {
 			SelectableChannel channel = key.channel();
 			if (channel instanceof ServerSocketChannel) {
-				System.out.println(
-						"\tServerSocketChannel can perform : " + possibleActionsToString(key));
+				LOGGER.fine("\tServerSocketChannel can perform : " + possibleActionsToString(key));
 			} else {
 				SocketChannel sc = (SocketChannel) channel;
-				System.out.println("\tClient " + remoteAddressToString(sc) + " can perform : "
+				LOGGER.fine("\tClient " + remoteAddressToString(sc) + " can perform : "
 						+ possibleActionsToString(key));
 			}
 		}

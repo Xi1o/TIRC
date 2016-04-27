@@ -11,10 +11,12 @@ import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.Objects;
 import java.util.Queue;
+import java.util.logging.Logger;
 
 import fr.upem.net.tcp.reader.CommandReader;
 
 public class Context {
+	private static final Logger LOGGER = Logger.getLogger("ServerLogger");
 	private static final int BUFSIZ = 4096;
 	private final Server server;
 	private final SocketChannel sc;
@@ -27,7 +29,10 @@ public class Context {
 	private final Queue<ByteBuffer> queue;
 	/** {@link CommandReader} process ridden data from client. **/
 	private CommandReader commandReader;
-	/** {@link HashMap} that associate an opcode ({@code byte}) with the right method to call. **/
+	/**
+	 * {@link HashMap} that associate an opcode ({@code byte}) with the right
+	 * method to call.
+	 **/
 	private final HashMap<Byte, Runnable> commands = new HashMap<>();
 	private String nickname;
 	/** {@link ByteBuffer} with client nickname. **/
@@ -110,6 +115,10 @@ public class Context {
 		commands.put((byte) 16, () -> disconnect());
 	}
 
+	public String remoteAddressToString() {
+		return Server.remoteAddressToString(sc);
+	}
+
 	/**
 	 * Performs a read operation.
 	 * 
@@ -124,6 +133,8 @@ public class Context {
 		}
 		switch (commandReader.process()) {
 		case ERROR:
+			LOGGER.warning(
+					remoteAddressToString() + " (" + nickname + ") did not respect protocol");
 			Server.silentlyClose(sc);
 			unregister();
 			return;
@@ -202,7 +213,7 @@ public class Context {
 		Server.silentlyClose(sc);
 		key.cancel();
 		if (isRegistered) {
-			server.unregisterClient(nickname, bbNickname);
+			server.unregisterClient(nickname, this);
 		}
 	}
 

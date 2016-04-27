@@ -593,7 +593,6 @@ public class Client {
 		try {
 			System.out.println("Server: "+iaServer + " Port: " + port);
 			SocketChannel clientSc = SocketChannel.open(server);
-			System.out.println("AUREVOIR");
 			clientGiveId(clientSc, id);
 			addSocketChannelReader(clientSc, clientNickname);
 			privateConnections.put(clientNickname, clientSc);
