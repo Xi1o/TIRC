@@ -21,17 +21,38 @@ public class Context {
 	private SelectionKey key;
 	private final ByteBuffer bbin;
 	private final ByteBuffer bbout;
+	/** {@code boolean}: connection with server is closed or not. **/
 	private boolean isClosed;
+	/** {@link Queue} containing messages not yet sent. **/
 	private final Queue<ByteBuffer> queue;
+	/** {@link CommandReader} process ridden data from client. **/
 	private CommandReader commandReader;
+	/** {@link HashMap} that associate an opcode ({@code byte}) with the right method to call. **/
 	private final HashMap<Byte, Runnable> commands = new HashMap<>();
 	private String nickname;
+	/** {@link ByteBuffer} with client nickname. **/
 	private ByteBuffer bbNickname;
+	/** Private port where client listen for private communication. **/
 	private int privatePort;
+	/** {@code boolean}: is registered to server or not. **/
 	private boolean isRegistered = false;
 
 	/* Core */
 
+	/**
+	 * Constructor.
+	 * 
+	 * @param bbin
+	 *            {@link ByteBuffer} for input
+	 * @param bbout
+	 *            {@link ByteBuffer} for output
+	 * @param queue
+	 *            {@link Queue} for messages to send
+	 * @param server
+	 *            {@link Server} where {@code Context} will be attached
+	 * @param sc
+	 *            {@link SocketChannel} where will communicate with client.
+	 */
 	private Context(ByteBuffer bbin, ByteBuffer bbout, Queue<ByteBuffer> queue, Server server,
 			SocketChannel sc) {
 		this.bbin = bbin;
@@ -43,6 +64,15 @@ public class Context {
 		commandReader = new CommandReader(bbin, Collections.unmodifiableMap(commands));
 	}
 
+	/**
+	 * Static factory method to create a {@code Context}.
+	 * 
+	 * @param server
+	 *            where context is set
+	 * @param sc
+	 *            {@link SocketChannel} associated to context
+	 * @return an instance of {@code Context}
+	 */
 	public static Context create(Server server, SocketChannel sc) {
 		ByteBuffer bbin = ByteBuffer.allocate(BUFSIZ);
 		ByteBuffer bbout = ByteBuffer.allocate(BUFSIZ);
@@ -50,14 +80,28 @@ public class Context {
 		return new Context(bbin, bbout, queue, server, sc);
 	}
 
+	/**
+	 * Setter for {@link SelectionKey}.
+	 * 
+	 * @param key
+	 *            {@link SelectionKey} to set.
+	 */
 	public void setSelectionKey(SelectionKey key) {
 		this.key = key;
 	}
 
+	/**
+	 * Getter for {@link ByteBuffer} containing client's nickname.
+	 * 
+	 * @return {@link ByteBuffer} of client's nickname.
+	 */
 	public ByteBuffer getBbNickname() {
 		return bbNickname.asReadOnlyBuffer();
 	}
 
+	/**
+	 * Associate to an opcode the right method to call.
+	 */
 	private void initCommands() {
 		commands.put((byte) 0, () -> registerNickname());
 		commands.put((byte) 4, () -> receivedMessage());
@@ -66,8 +110,14 @@ public class Context {
 		commands.put((byte) 16, () -> disconnect());
 	}
 
+	/**
+	 * Performs a read operation.
+	 * 
+	 * @throws IOException
+	 *             if disconnected from client.
+	 */
 	public void doRead() throws IOException {
-		if (-1 == sc.read(bbin)) {
+		if (-1 == sc.read(bbin) || isClosed) {
 			Server.silentlyClose(sc);
 			unregister();
 			return;
@@ -87,6 +137,12 @@ public class Context {
 		updateInterestOps();
 	}
 
+	/**
+	 * Performs a write operation.
+	 * 
+	 * @throws IOException
+	 *             if disconnected from client.
+	 */
 	public void doWrite() throws IOException {
 		if (!queue.isEmpty()) {
 			int size = queue.peek().position();
@@ -106,6 +162,10 @@ public class Context {
 		updateInterestOps();
 	}
 
+	/**
+	 * Update {@code Context} interest operations depending on what it can
+	 * performs.
+	 */
 	private void updateInterestOps() {
 		if (!key.isValid()) {
 			return;
@@ -120,15 +180,24 @@ public class Context {
 		key.interestOps(newInterestOps);
 	}
 
+	/**
+	 * Register a message to send to client.
+	 * 
+	 * @param bbmsg
+	 *            {@link ByteBuffer} containing the message.
+	 */
 	public void registerMessage(ByteBuffer bbmsg) {
 		if (queue.size() > Server.MAX_MSG) {
 			isClosed = true;
-			//TODO
+			return;
 		}
 		queue.offer(Objects.requireNonNull(bbmsg));
 		key.interestOps(key.interestOps() | SelectionKey.OP_WRITE);
 	}
 
+	/**
+	 * Unregister {@code Context} to server.
+	 */
 	private void unregister() {
 		Server.silentlyClose(sc);
 		key.cancel();
@@ -137,6 +206,12 @@ public class Context {
 		}
 	}
 
+	/**
+	 * Packet server send to client after a request connection.
+	 * 
+	 * @param accept
+	 *            {@code true} if accept, {@code false} otherwise
+	 */
 	private void confirmConnection(boolean accept) {
 		byte confirmationByte = (accept) ? (byte) 0 : 1;
 		bbout.put((byte) 1);
@@ -146,9 +221,21 @@ public class Context {
 
 	/* Commands */
 
-	// Opcode 0
+	/**
+	 * <p>
+	 * If received opcode 0, a connection was requested from a client, try to
+	 * register him.
+	 * </p>
+	 * <ul>
+	 * <li>If registration has been made send confirm connection packet.</li>
+	 * 
+	 * <li>If nickname was too long, client did not respect protocol, close
+	 * connection.</li>
+	 * 
+	 * <li>If nickname already taken send refuse connection packet.</li>
+	 * </ul>
+	 */
 	private void registerNickname() {
-		// TODO ERROR class cast integer to string
 		nickname = (String) commandReader.get();
 		privatePort = (int) commandReader.get();
 		if (nickname.length() > Server.MAX_NICKSIZ) {
@@ -169,7 +256,15 @@ public class Context {
 		}
 	}
 
-	// Opcode 4
+	/**
+	 * <p>
+	 * If received opcode 4, a message was received from client.
+	 * </p>
+	 * 
+	 * <p>
+	 * Transfer message to server so it can be sent to all connected clients.
+	 * </p>
+	 */
 	private void receivedMessage() {
 		ByteBuffer bbmsg = (ByteBuffer) commandReader.get();
 		bbmsg.flip();
@@ -184,7 +279,10 @@ public class Context {
 		server.sendMessage(bb);
 	}
 
-	// Opcode 6
+	/**
+	 * If received opcode 6, a private connection was requested from client A,
+	 * ask client B if he accepts request.
+	 */
 	private void privateCommunicationRequest() {
 		ByteBuffer bbDestNickname = (ByteBuffer) commandReader.get();
 		bbDestNickname.flip();
@@ -192,7 +290,14 @@ public class Context {
 		server.askPermissionPrivateConnection(nickname, destNickname);
 	}
 
-	// Opcode 8
+	/**
+	 * If received opcode 8, a private connection answer was received from
+	 * client B.
+	 * <ul>
+	 * <li>Send accept private connection packet to client A if accepted with
+	 * his IP address, port and session ID.</li>
+	 * <li>Send refuse private connection packet otherwise.
+	 */
 	private void privateCommunicationAnswer() {
 		Byte accept = (Byte) commandReader.get();
 		String withNickname = (String) commandReader.get();
@@ -205,13 +310,21 @@ public class Context {
 		server.acceptPrivateConnection(nickname, withNickname, inet, privatePort, sessionId);
 	}
 
-	// Opcode 15
+	/**
+	 * If received opcode 16, client has left.
+	 */
 	private void disconnect() {
 		unregister();
 	}
 
 	/* Notification from server */
 
+	/**
+	 * Server notify {@code Context} a client has joined.
+	 * 
+	 * @param nickname
+	 *            of client who joined
+	 */
 	public void clientHasJoined(String nickname) {
 		ByteBuffer bbNickname = Server.CHARSET_NICKNAME.encode(nickname);
 		ByteBuffer bbmsg = ByteBuffer.allocate(Byte.BYTES + Integer.BYTES + bbNickname.remaining());
@@ -221,6 +334,12 @@ public class Context {
 		registerMessage(bbmsg);
 	}
 
+	/**
+	 * Server notify {@code Context} a client has left.
+	 * 
+	 * @param bbNickname
+	 *            containing nickname of client who left
+	 */
 	public void clientHasLeft(ByteBuffer bbNickname) {
 		bbNickname.flip();
 		int size = bbNickname.remaining();
@@ -231,6 +350,13 @@ public class Context {
 		registerMessage(bbmsg);
 	}
 
+	/**
+	 * Server notify {@code Context} that a client requested a private
+	 * connection.
+	 * 
+	 * @param fromNickname
+	 *            of client who requested the private connection
+	 */
 	public void askPrivateCommunication(String fromNickname) {
 		ByteBuffer bbNickname = Server.CHARSET_NICKNAME.encode(fromNickname);
 		int size = bbNickname.remaining();
@@ -241,6 +367,18 @@ public class Context {
 		registerMessage(bbmsg);
 	}
 
+	/**
+	 * Accept private connection with client A.
+	 * 
+	 * @param fromNickName
+	 *            of client A who requested a private connection
+	 * @param inet
+	 *            {@link InetAddress} of client B who accepted
+	 * @param port
+	 *            of client B who accepted
+	 * @param id
+	 *            that client A will need to provide to authenticate to client B
+	 */
 	public void acceptPrivateCommunication(String fromNickName, InetAddress inet, int port,
 			long id) {
 		ByteBuffer bbNickname = Server.CHARSET_NICKNAME.encode(fromNickName);
@@ -264,6 +402,12 @@ public class Context {
 		registerMessage(bb);
 	}
 
+	/**
+	 * Refuse private connection with client A.
+	 * 
+	 * @param fromNickName
+	 *            of client A
+	 */
 	public void refusePrivateCommunication(String fromNickName) {
 		ByteBuffer bbNickname = Server.CHARSET_NICKNAME.encode(fromNickName);
 		int nicknameSize = bbNickname.remaining();

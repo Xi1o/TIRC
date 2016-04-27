@@ -591,10 +591,9 @@ public class Client {
 	private void privateConnect(String clientNickname, InetAddress iaServer, int port, long id) {
 		InetSocketAddress server = new InetSocketAddress(iaServer, port);
 		try {
-			SocketChannel clientSc = SocketChannel.open(server); // TODO BUG si
-																	// non
-																	// localhost,
-																	// bloque
+			System.out.println("Server: "+iaServer + " Port: " + port);
+			SocketChannel clientSc = SocketChannel.open(server);
+			System.out.println("AUREVOIR");
 			clientGiveId(clientSc, id);
 			addSocketChannelReader(clientSc, clientNickname);
 			privateConnections.put(clientNickname, clientSc);

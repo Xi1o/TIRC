@@ -69,6 +69,14 @@ public class PrivateConnectionReader implements Reader {
 		return Status.DONE;
 	}
 
+	/**
+	 * @return {@link Object}:
+	 * <ul>
+	 * 	<li>{@code Byte} accept the first time</li>
+	 * 	<li>{@code String} nickname the second time</li>
+	 * 	<li>{@code Long} session ID the third time</li>
+	 * </ul>
+	 */
 	@Override
 	public Object get() {
 		if (nbget%3 == 0) {
@@ -76,7 +84,6 @@ public class PrivateConnectionReader implements Reader {
 			return accept;
 		} else if (nbget%3 == 1) {
 			nbget++;
-			System.out.println("yaaaaaaaaaaaaaaa");
 			return fromNickname;
 		}
 		nbget++;

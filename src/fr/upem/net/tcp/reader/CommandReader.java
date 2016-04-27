@@ -15,7 +15,15 @@ public class CommandReader implements Reader {
 	private State state;
 	private final ByteBuffer bb;
 	byte opcode;
+	/**
+	 * {@link HashMap} containing the method to call in Context after reading
+	 * data.
+	 **/
 	private final Map<Byte, Runnable> commands;
+	/**
+	 * {@link HashMap} associate to each opcode ({@code byte}) the right reader
+	 * to call.
+	 **/
 	private final HashMap<Byte, Reader> readers = new HashMap<>();
 
 	public CommandReader(ByteBuffer bb, Map<Byte, Runnable> commands) {
@@ -25,6 +33,9 @@ public class CommandReader implements Reader {
 		init();
 	}
 
+	/**
+	 * Initialize {@code readers} {@link HashMap}.
+	 */
 	private void init() {
 		readers.put((byte) 0, new LoginReader(bb, Server.MAX_NICKSIZ)); // co_req
 		readers.put((byte) 4, new StringReader(bb, Server.MAX_MSGSIZ)); // pub_msg_req
@@ -52,7 +63,7 @@ public class CommandReader implements Reader {
 
 	@Override
 	public void reset() {
-		//state = State.OPCODE;
+		// state = State.OPCODE;
 		readers.get(opcode).reset();
 	}
 
@@ -71,6 +82,9 @@ public class CommandReader implements Reader {
 		return Status.DONE;
 	}
 
+	/**
+	 * @return {@link Object}: the next field of current {@code Reader}
+	 */
 	@Override
 	public Object get() {
 		return readers.get(opcode).get();

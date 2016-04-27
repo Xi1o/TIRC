@@ -62,6 +62,9 @@ public class StringReader implements Reader {
 		return Status.DONE;
 	}
 
+	/**
+	 * @return {@link Object} containing the {@link ByteBuffer} of the ridden string
+	 */
 	@Override
 	public Object get() {
 		return bbstr;
