@@ -17,6 +17,10 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Objects;
 import java.util.Random;
+import java.util.logging.FileHandler;
+import java.util.logging.Level;
+import java.util.logging.Logger;
+import java.util.logging.SimpleFormatter;
 
 /**
  * Class used as a client using the TIRC protocol.
@@ -25,6 +29,8 @@ import java.util.Random;
  *
  */
 public class Client {
+	private static final Logger LOGGER = Logger.getLogger("ClientLogger");
+	private FileHandler fh;
 	public static final int BUFSIZ = 4096;
 	public static final int MAX_NICKLEN = 10;
 	private static final int MAX_MSGSIZ = 2048;
@@ -142,9 +148,18 @@ public class Client {
 	/**
 	 * Launch client: handle received packets / read thread / start server
 	 * thread
+	 * 
+	 * @throws IOException
+	 *             if some I/O error occurs with logs
 	 */
-	public void launch() {
-		// To do
+	public void launch() throws IOException {
+		fh = new FileHandler("./Clientlogs", true);
+		LOGGER.addHandler(fh);
+		LOGGER.setLevel(Level.ALL);
+		SimpleFormatter formatter = new SimpleFormatter();
+		fh.setFormatter(formatter);
+
+		// TODO NO THREAD
 		readThread = new Thread(() -> {
 			try {
 				while (true) {
@@ -154,7 +169,7 @@ public class Client {
 			} catch (IOException ioe) {
 				mainThread.interrupt();
 				if (!hasQuit) {
-					System.err.println("Connection with server lost (launch): " + ioe);
+					LOGGER.log(Level.SEVERE, ioe.toString(), ioe);
 				}
 				return;
 			}
@@ -163,7 +178,7 @@ public class Client {
 			try {
 				clientServer.launch();
 			} catch (IOException ioe) {
-				System.err.println("Client's server: " + ioe);
+				LOGGER.log(Level.SEVERE, ioe.toString(), ioe);
 			}
 		});
 		readThread.start();
@@ -248,10 +263,11 @@ public class Client {
 		bbout.flip();
 		try {
 			sc.write(bbout);
-		} catch (IOException e) {
-			System.err.println("Connection lost (processInput).");
+		} catch (IOException ioe) {
+			LOGGER.log(Level.SEVERE, ioe.toString(), ioe);
 		}
 		if (hasQuit) {
+			LOGGER.info("Has quit");
 			clientGUI.exit();
 		}
 	}
@@ -502,7 +518,7 @@ public class Client {
 
 	// Opcode unknown
 	private void error() {
-		System.out.println("[ERROR] Unknown opcode from server.");
+		LOGGER.severe("Unknown opcode from server.");
 	}
 
 	// Opcode 2
@@ -591,15 +607,15 @@ public class Client {
 	private void privateConnect(String clientNickname, InetAddress iaServer, int port, long id) {
 		InetSocketAddress server = new InetSocketAddress(iaServer, port);
 		try {
-			System.out.println("Server: "+iaServer + " Port: " + port);
 			SocketChannel clientSc = SocketChannel.open(server);
+			LOGGER.info("Connected with " + clientNickname + " at " + iaServer + ":" + port);
 			clientGiveId(clientSc, id);
 			addSocketChannelReader(clientSc, clientNickname);
 			privateConnections.put(clientNickname, clientSc);
 			clientGUI.println("Private connection established with " + clientNickname + ".");
 			clientGUI.println("To communicate with him privately use: /w " + clientNickname);
 		} catch (IOException ioe) {
-			System.err.println("Could not connect to " + clientNickname + ": " + ioe);
+			LOGGER.log(Level.WARNING, "Could not connect to " + clientNickname + ": " + ioe, ioe);
 			return;
 		}
 	}
@@ -624,6 +640,21 @@ public class Client {
 		Thread t = new Thread(r);
 		t.start();
 		privateConnectionThreads.put(clientNickname, t);
-		System.out.println("New private connection thread running.");
+		LOGGER.info("New private connection thread running with " + clientNickname);
+	}
+	
+	/**
+	 * Return {@code String} representation of a {@link SocketChannel}.
+	 * 
+	 * @param socketChannel
+	 *            to convert in {@code String}
+	 * @return {@code String} of the {@link SocketChannel}
+	 */
+	public static String remoteAddressToString(SocketChannel socketChannel) {
+		try {
+			return socketChannel.getRemoteAddress().toString();
+		} catch (IOException ioe) {
+			return "???";
+		}
 	}
 }

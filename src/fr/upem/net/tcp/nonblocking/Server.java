@@ -63,7 +63,7 @@ public class Server {
 	 */
 	public void launch() {
 		try {
-			fh = new FileHandler("./logs", true);
+			fh = new FileHandler("./Serverlogs", true);
 			LOGGER.addHandler(fh);
 			LOGGER.setLevel(Level.ALL);
 			SimpleFormatter formatter = new SimpleFormatter();

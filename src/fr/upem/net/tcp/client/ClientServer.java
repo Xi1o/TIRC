@@ -13,8 +13,11 @@ import java.nio.channels.ClosedChannelException;
 import java.nio.channels.ServerSocketChannel;
 import java.nio.channels.SocketChannel;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 public class ClientServer {
+	private static final Logger LOGGER = Logger.getLogger("ClientLogger");
 	private static final int MAX_THREADS = 10;
 	private final ServerSocketChannel serverSocketChannel;
 	private final SocketChannel[] scs;
@@ -32,7 +35,6 @@ public class ClientServer {
 		this.serverSocketChannel = serverSocketChannel;
 		this.scs = scs;
 		this.threads = threads;
-
 	}
 
 	public static ClientServer create(int port) throws IOException {
@@ -57,7 +59,7 @@ public class ClientServer {
 					synchronized (lock) {
 						scs[id] = client;
 					}
-					System.out.println("Connection accepted from " + client.getRemoteAddress());
+					LOGGER.info("Connection accepted with" + Client.remoteAddressToString(client));
 					try {
 						serve(client);
 					} catch (AsynchronousCloseException ace) {
@@ -65,11 +67,9 @@ public class ClientServer {
 						continue;
 						// disconnected with client
 					} catch (IOException ioe) {
-						System.err.println("I/O Error while communicating with client... ");
-						ioe.printStackTrace();
+						LOGGER.log(Level.WARNING, ioe.toString(), ioe);
 					} catch (InterruptedException ie) {
-						System.out.println("Server interrupted... ");
-						ie.printStackTrace();
+						LOGGER.log(Level.INFO, "Server interrupted: " + ie.toString(), ie);
 						return;
 					} finally {
 						clientGUI.println("Private connection closed.");
@@ -89,11 +89,13 @@ public class ClientServer {
 		ByteBuffer bbin = ByteBuffer.allocate(Client.BUFSIZ);
 		if (!authentication(sc, bbin)) {
 			clientGUI.println("Could not authentificate client");
+			LOGGER.warning(
+					Client.remoteAddressToString(sc) + ": attempted to connected with false token");
 			return;
 		}
 		String nicknameServed = nicknamesConnected.get(sc);
 		if (null == nicknameServed) {
-			System.err.println("Unknown connection.");
+			LOGGER.warning("Unknown client attempted to connect.");
 			return;
 		}
 		while (true) {
@@ -107,11 +109,12 @@ public class ClientServer {
 					clientGUI.println(nicknameServed + " has closed private connection.");
 					return;
 				default:
-					System.err.println("Unknown opcode: " + opcode);
+					LOGGER.warning("Unknown opcode: " + opcode + " from " + nicknameServed);
 					return;
 				}
 			} catch (IOException ioe) {
 				clientGUI.println("Lost private connection with " + nicknameServed);
+				LOGGER.warning("Lost private connection with " + nicknameServed);
 				throw ioe;
 			}
 		}
@@ -168,7 +171,7 @@ public class ClientServer {
 		sc.write(bbmsg);
 		return true;
 	}
-	
+
 	public boolean isConnected(String clientNickname) {
 		return socketChannelClients.containsKey(clientNickname);
 	}
@@ -178,7 +181,7 @@ public class ClientServer {
 	private boolean authentication(SocketChannel sc, ByteBuffer bb) throws IOException {
 		byte opcode = readByte(sc, bb);
 		if (opcode != (byte) 10) {
-			System.err.println("Not expected opcode " + opcode + ".");
+			LOGGER.warning("Not expected opcode: " + opcode);
 		}
 		int nicknameSize = readInt(sc, bb);
 		String clientNickname = readString(sc, bb, nicknameSize, Client.CS_NICKNAME);
@@ -186,8 +189,7 @@ public class ClientServer {
 		long givenId = privateConnectionsId.getOrDefault(clientNickname, (long) 0);
 		privateConnectionsId.remove(clientNickname); // no more needed
 		if ((long) 0 == givenId || givenId != id) {
-			System.out.println(id + " /// " + givenId);
-			System.err.println("Authenfication failed: " + clientNickname);
+			LOGGER.warning("Wrong token given from: "+clientNickname);
 			return false;
 		}
 		nicknamesConnected.put(sc, clientNickname);
