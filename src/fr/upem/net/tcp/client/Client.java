@@ -32,33 +32,34 @@ public class Client {
 	private static final Logger LOGGER = Logger.getLogger("ClientLogger");
 	private FileHandler fh;
 	public static final int BUFSIZ = 4096;
-	public static final int MAX_NICKLEN = 10;
+	public static final int MAX_NICKLEN = 15;
 	private static final int MAX_MSGSIZ = 2048;
 	public static final Charset CS_NICKNAME = Charset.forName("ASCII");
 	public static final Charset CS_MESSAGE = Charset.forName("UTF-8");
+	/** Time before sending a keep alive packet */
+	private static final int KEEP_ALIVE_DELAY = 2000;
 	private final SocketChannel sc;
 	private final ByteBuffer bbin;
 	private final ByteBuffer bbout;
 	private final String nickname;
 	private final int listenport;
 	private int numberConnected;
-	private Thread readThread;
 	private Thread serverThread;
-	private Thread mainThread;
-	/* Handler call right function depending on opcode. */
+	private Thread keepAliveThread;
+	/** Handler call right function depending on opcode. */
 	private final HashMap<Byte, Handeable> handler = new HashMap<>();
-	/*
-	 * Associate a thread to read from a SC to a nickname for private
-	 * connection.
-	 */
+	/** Thread associated to the nickname in private connection */
 	private final HashMap<String, Thread> privateConnectionThreads = new HashMap<>();
-	/* Set of nicknames of connected clients. */
+	/** Set of nicknames of connected clients. */
 	private final HashSet<String> connectedNicknames = new HashSet<>();
-	/* Private connections to client's server */
+	/** Nicknames in private connections with client's server */
 	private final HashMap<String, SocketChannel> privateConnections = new HashMap<>();
+	/** User has close client */
 	private boolean hasQuit;
 	private final ClientGUI clientGUI = new ClientGUI(this);
+	/** Used to generate a token for private communication */
 	private final Random randomId = new Random();
+	/** Server where client listen for private connection */
 	private final ClientServer clientServer;
 
 	@FunctionalInterface
@@ -77,7 +78,6 @@ public class Client {
 		this.clientServer = clientServer;
 		this.clientServer.setUI(clientGUI);
 		this.listenport = listenport;
-		mainThread = Thread.currentThread();
 	}
 
 	/**
@@ -128,11 +128,12 @@ public class Client {
 	 * 
 	 * @throws IOException
 	 */
-	public void close() throws IOException {
-		sc.close();
-		readThread.interrupt();
+	private void close() throws IOException {
+		// clientGUI.exit();
+		keepAliveThread.interrupt();
 		clientServer.shutdownNow();
 		serverThread.interrupt();
+		sc.close();
 		for (String key : privateConnectionThreads.keySet()) {
 			privateConnectionThreads.get(key).interrupt();
 		}
@@ -159,21 +160,6 @@ public class Client {
 		SimpleFormatter formatter = new SimpleFormatter();
 		fh.setFormatter(formatter);
 
-		// TODO NO THREAD
-		readThread = new Thread(() -> {
-			try {
-				while (true) {
-					Byte opcode = readByte(sc, bbin);
-					handler.getOrDefault(opcode, () -> error()).handle();
-				}
-			} catch (IOException ioe) {
-				mainThread.interrupt();
-				if (!hasQuit) {
-					LOGGER.log(Level.SEVERE, ioe.toString(), ioe);
-				}
-				return;
-			}
-		});
 		serverThread = new Thread(() -> {
 			try {
 				clientServer.launch();
@@ -181,8 +167,41 @@ public class Client {
 				LOGGER.log(Level.SEVERE, ioe.toString(), ioe);
 			}
 		});
-		readThread.start();
 		serverThread.start();
+
+		keepAliveThread = new Thread(() -> {
+			ByteBuffer bb = ByteBuffer.allocate(Byte.BYTES);
+			bb.put((byte) 18);
+			while (!Thread.interrupted()) {
+				try {
+					bb.flip();
+					sc.write(bb);
+				} catch (IOException ioe) {
+					LOGGER.log(Level.SEVERE, ioe.toString(), ioe);
+					return;
+				}
+				try {
+					Thread.sleep(KEEP_ALIVE_DELAY);
+				} catch (InterruptedException ie) {
+					if (!hasQuit) {
+						LOGGER.log(Level.SEVERE, ie.toString(), ie);
+					}
+					return;
+				}
+			}
+		});
+		keepAliveThread.start();
+
+		try {
+			while (true) {
+				Byte opcode = readByte(sc, bbin);
+				handler.getOrDefault(opcode, () -> error()).handle();
+			}
+		} catch (IOException ioe) {
+			if (!hasQuit) {
+				LOGGER.log(Level.SEVERE, ioe.toString(), ioe);
+			}
+		}
 	}
 
 	/* User's input */
@@ -220,6 +239,8 @@ public class Client {
 				break;
 			}
 			packetClientInfoRequest(toNickname);
+			// Remember that you requested a private connection
+			privateConnections.put(toNickname, null);
 			break;
 		case "/w":
 			if (!hasAtLeastArgs(argsInput, 3)) {
@@ -269,6 +290,7 @@ public class Client {
 		if (hasQuit) {
 			LOGGER.info("Has quit");
 			clientGUI.exit();
+			close();
 		}
 	}
 
@@ -605,6 +627,10 @@ public class Client {
 	}
 
 	private void privateConnect(String clientNickname, InetAddress iaServer, int port, long id) {
+		if (!privateConnections.containsKey(clientNickname)) {
+			LOGGER.warning(iaServer + " confirmed a private connection that was not requested");
+			return;
+		}
 		InetSocketAddress server = new InetSocketAddress(iaServer, port);
 		try {
 			SocketChannel clientSc = SocketChannel.open(server);
@@ -642,7 +668,7 @@ public class Client {
 		privateConnectionThreads.put(clientNickname, t);
 		LOGGER.info("New private connection thread running with " + clientNickname);
 	}
-	
+
 	/**
 	 * Return {@code String} representation of a {@link SocketChannel}.
 	 * 

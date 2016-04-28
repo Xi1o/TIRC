@@ -12,6 +12,7 @@ import java.nio.channels.SocketChannel;
 import java.nio.charset.Charset;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Set;
 import java.util.logging.FileHandler;
 import java.util.logging.Level;
@@ -21,22 +22,27 @@ import java.util.logging.SimpleFormatter;
 public class Server {
 	private static final Logger LOGGER = Logger.getLogger("ServerLogger");
 	private FileHandler fh;
-	/** Maximum nickname size in bytes (or length in ASCII). **/
+	/** Maximum nickname size in bytes (or length in ASCII). */
 	public static final int MAX_NICKSIZ = 15;
-	/** Maximum message size in bytes. **/
+	/** Maximum message size in bytes. */
 	public static final int MAX_MSGSIZ = 2048;
-	/** Maximum messages that a context can hold. **/
+	/** Maximum messages that a context can hold. */
 	public static final int MAX_MSG = 100;
-	/** {@link Charset} used for encoding nicknames. **/
+	/** {@link Charset} used for encoding nicknames. */
 	public static final Charset CHARSET_NICKNAME = Charset.forName("ASCII");
-	/** {@link Charset} used for encoding messages. **/
+	/** {@link Charset} used for encoding messages. */
 	public static final Charset CHARSET_MSG = Charset.forName("UTF-8");
+	/** TIMEOUT client inactivity */
+	private static final int TIMEOUT = 5000;
+	/** Max time a client can be inactive before timeout */
+	public static final int MAX_INACTIVITY_COUNTER = 1;
 	private final ServerSocketChannel serverSocketChannel;
 	private final Selector selector;
 	private final Set<SelectionKey> selectedKeys;
 	/** {@link HashMap} associating a client's nickname with its context. **/
 	private final HashMap<String, Context> clients = new HashMap<>();
 	private int numberConnected;
+	private long lastTimeoutCheck;
 
 	/* Server core */
 
@@ -76,7 +82,8 @@ public class Server {
 			while (!Thread.interrupted()) {
 				printKeys();
 				LOGGER.fine("Starting select");
-				selector.select();
+				selector.select(TIMEOUT);
+				long time = System.currentTimeMillis();
 				if (Thread.interrupted()) {
 					LOGGER.info("Shutdown");
 					shutdown();
@@ -85,6 +92,7 @@ public class Server {
 				LOGGER.fine("Select finished");
 				printSelectedKey();
 				try {
+					processNonSelectedKeys(time);
 					processSelectedKeys();
 				} catch (IOException e) {
 					LOGGER.info("Shutdown");
@@ -121,6 +129,20 @@ public class Server {
 				SocketChannel sc = (SocketChannel) key.channel();
 				LOGGER.warning(remoteAddressToString(sc) + ": " + ioe.toString());
 				silentlyClose(sc);
+			}
+		}
+	}
+
+	private void processNonSelectedKeys(long time) {
+		if (time - lastTimeoutCheck > TIMEOUT) {
+			lastTimeoutCheck = time;
+			Set<SelectionKey> tmp = new HashSet<>(selector.keys());
+			tmp.removeAll(selectedKeys);
+			for (SelectionKey key : selector.keys()) {
+				Context context = (Context) key.attachment();
+				if (null != context) { // not server key
+					context.checkForTimeout();
+				}
 			}
 		}
 	}

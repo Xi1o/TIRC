@@ -47,7 +47,7 @@ public class CommandReader implements Reader {
 	public Status process() {
 		switch (state) {
 		case OPCODE:
-			if (bb.position() < Integer.BYTES) {
+			if (bb.position() < Byte.BYTES) {
 				return Status.REFILL;
 			}
 			bb.flip();
@@ -69,15 +69,18 @@ public class CommandReader implements Reader {
 
 	private Status processCommand() {
 		Reader reader = readers.get(opcode);
-		if (null == reader) {
+		if (null != reader) { // if need more than opcode
+			reader.reset();
+			Status status = reader.process();
+			if (status != Status.DONE) {
+				return status;
+			}
+		}
+		Runnable runnable = commands.get(opcode);
+		if(null == runnable) {
 			return Status.ERROR;
 		}
-		reader.reset();
-		Status status = reader.process();
-		if (status != Status.DONE) {
-			return status;
-		}
-		commands.get(opcode).run();
+		runnable.run();
 		state = State.OPCODE;
 		return Status.DONE;
 	}

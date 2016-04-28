@@ -98,6 +98,7 @@ public class ClientServer {
 			LOGGER.warning("Unknown client attempted to connect.");
 			return;
 		}
+		boolean hasClosed = false;
 		while (true) {
 			try {
 				byte opcode = readByte(sc, bbin);
@@ -106,6 +107,7 @@ public class ClientServer {
 					receivedMessage(sc, bbin, nicknameServed);
 					break;
 				case 12:
+					hasClosed = true;
 					clientGUI.println(nicknameServed + " has closed private connection.");
 					return;
 				default:
@@ -113,9 +115,11 @@ public class ClientServer {
 					return;
 				}
 			} catch (IOException ioe) {
-				clientGUI.println("Lost private connection with " + nicknameServed);
-				LOGGER.warning("Lost private connection with " + nicknameServed);
-				throw ioe;
+				if (!hasClosed) {
+					clientGUI.println("Lost private connection with " + nicknameServed);
+					LOGGER.warning("Lost private connection with " + nicknameServed);
+					throw ioe;
+				}
 			}
 		}
 	}
@@ -189,7 +193,7 @@ public class ClientServer {
 		long givenId = privateConnectionsId.getOrDefault(clientNickname, (long) 0);
 		privateConnectionsId.remove(clientNickname); // no more needed
 		if ((long) 0 == givenId || givenId != id) {
-			LOGGER.warning("Wrong token given from: "+clientNickname);
+			LOGGER.warning("Wrong token given from: " + clientNickname);
 			return false;
 		}
 		nicknamesConnected.put(sc, clientNickname);

@@ -41,6 +41,7 @@ public class Context {
 	private int privatePort;
 	/** {@code boolean}: is registered to server or not. **/
 	private boolean isRegistered = false;
+	private int inactivityCounter;
 
 	/* Core */
 
@@ -113,10 +114,21 @@ public class Context {
 		commands.put((byte) 6, () -> privateCommunicationRequest());
 		commands.put((byte) 8, () -> privateCommunicationAnswer());
 		commands.put((byte) 16, () -> disconnect());
+		commands.put((byte) 18, () -> keepAlive());
 	}
 
 	public String remoteAddressToString() {
 		return Server.remoteAddressToString(sc);
+	}
+
+	public void checkForTimeout() {
+		if (inactivityCounter >= Server.MAX_INACTIVITY_COUNTER) {
+			LOGGER.warning(remoteAddressToString() + " (" + nickname + ") has been timeout");
+			isClosed = true;
+			unregister();
+		} else {
+			inactivityCounter++;
+		}
 	}
 
 	/**
@@ -126,6 +138,7 @@ public class Context {
 	 *             if disconnected from client.
 	 */
 	public void doRead() throws IOException {
+		inactivityCounter = 0;
 		if (-1 == sc.read(bbin) || isClosed) {
 			Server.silentlyClose(sc);
 			unregister();
@@ -249,11 +262,6 @@ public class Context {
 	private void registerNickname() {
 		nickname = (String) commandReader.get();
 		privatePort = (int) commandReader.get();
-		if (nickname.length() > Server.MAX_NICKSIZ) {
-			Server.silentlyClose(sc);
-			isClosed = true;
-			return;
-		}
 		if (server.registerClient(nickname, this)) {
 			confirmConnection(true);
 			bbNickname = Server.CHARSET_NICKNAME.encode(nickname);
@@ -326,6 +334,10 @@ public class Context {
 	 */
 	private void disconnect() {
 		unregister();
+	}
+
+	private void keepAlive() {
+		// just here to update inactivityCounter in doRead
 	}
 
 	/* Notification from server */
