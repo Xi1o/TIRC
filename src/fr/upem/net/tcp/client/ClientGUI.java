@@ -164,7 +164,6 @@ public class ClientGUI extends JFrame {
      * @throws IOException
      */
     public void exit() throws IOException {
-        client.close();
         dispose();
     }
 }

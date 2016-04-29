@@ -43,7 +43,7 @@ public class StringReader implements Reader {
 				return Status.REFILL;
 			}
 			processInt();
-			if (size <= 0 || size >= maxSize) {
+			if (size <= 0 || size > maxSize) {
 				System.err.println("Invalide size: " + size + " / " + maxSize);
 				return Status.ERROR;
 			}
@@ -62,6 +62,9 @@ public class StringReader implements Reader {
 		return Status.DONE;
 	}
 
+	/**
+	 * @return {@link Object} containing the {@link ByteBuffer} of the ridden string
+	 */
 	@Override
 	public Object get() {
 		return bbstr;

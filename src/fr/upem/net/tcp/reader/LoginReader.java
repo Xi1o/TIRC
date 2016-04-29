@@ -55,9 +55,16 @@ public class LoginReader implements Reader {
 		return Status.DONE;
 	}
 
+	/**
+	 * @return {@link Object}:
+	 * <ul>
+	 * 	<li>{@code String} nickname the first time</li>
+	 * 	<li>{@code Integer} port the second time</li>
+	 * </ul>
+	 */
 	@Override
 	public Object get() {
-		if (nbget++ == 0) {
+		if (nbget++%2 == 0) {
 			return nickname;
 		}
 		return port;

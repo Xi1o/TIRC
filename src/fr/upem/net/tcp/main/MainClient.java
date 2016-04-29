@@ -22,6 +22,7 @@ public class MainClient {
 			client = Client.create(new InetSocketAddress(args[0], Integer.parseInt(args[1])),
 					args[2], Integer.parseInt(args[3]));
 		} catch (NumberFormatException nfe) {
+			System.err.println("Port: "+nfe);
 			Client.usage();
 			return;
 		}
