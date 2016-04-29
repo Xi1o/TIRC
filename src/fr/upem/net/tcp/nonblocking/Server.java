@@ -42,6 +42,7 @@ public class Server {
 	/** {@link HashMap} associating a client's nickname with its context. **/
 	private final HashMap<String, Context> clients = new HashMap<>();
 	private int numberConnected;
+	/** Last time timeout check was run */
 	private long lastTimeoutCheck;
 
 	/* Server core */
@@ -133,6 +134,12 @@ public class Server {
 		}
 	}
 
+	/**
+	 * If timeout has exceeded check on each non-selected keys for timeout.
+	 * 
+	 * @param time
+	 *            current time
+	 */
 	private void processNonSelectedKeys(long time) {
 		if (time - lastTimeoutCheck > TIMEOUT) {
 			lastTimeoutCheck = time;

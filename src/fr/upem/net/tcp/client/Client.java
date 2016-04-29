@@ -12,7 +12,6 @@ import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.channels.SocketChannel;
 import java.nio.charset.Charset;
-import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Objects;
@@ -251,7 +250,7 @@ public class Client {
 				clientGUI.println("Cannot send a private message to yourself.");
 				break;
 			}
-			String msg = String.join(" ", Arrays.copyOfRange(argsInput, 2, argsInput.length));
+			String msg = argsInput[2];
 			if (!sendPrivateMessage(toNickname, msg)) {
 				clientGUI.println(
 						"You must request a private connection before: /private " + toNickname);
@@ -302,12 +301,30 @@ public class Client {
 		return true;
 	}
 
+	/**
+	 * Print usage of a command.
+	 * 
+	 * @param command
+	 *            to print usage
+	 */
 	private void usageCommand(String command) {
 		clientGUI.println("Insufficient arguments for command " + command);
 	}
 
+	/**
+	 * Parse input depending on command.
+	 * 
+	 * @param input
+	 *            to parse
+	 * @return array of {@code String} parsed
+	 */
 	private String[] parseInput(String input) {
-		if (input.startsWith("/")) { // if it's a command
+		// if it's a command
+		if (input.startsWith("/")) {
+			// if it's a whisper : /w | nickname | msg
+			if (input.startsWith("/w")) {
+				return input.split(" ", 3);
+			}
 			// args[0] contains "/command" and the rest = arguments
 			return input.split(" ");
 		}
@@ -316,6 +333,9 @@ public class Client {
 		return args;
 	}
 
+	/**
+	 * Print all connected clients
+	 */
 	private void printConnectedClients() {
 		clientGUI.println("Connected: ");
 		connectedNicknames.forEach(n -> clientGUI.println("\t" + n));
@@ -387,7 +407,17 @@ public class Client {
 
 	/* Request to another client */
 
-	private boolean writePrivate(String toNickname) throws IOException {
+	/**
+	 * Write the content of {@code ByteBuffer} bbout in private communication.
+	 * 
+	 * @param toNickname
+	 *            nickname of user to write to
+	 * @return {@code true} if content sent, {@code false} if could not find the
+	 *         user
+	 * @throws IOException
+	 *             if some I/O error occurs with user
+	 */
+	private boolean writePrivateRequest(String toNickname) throws IOException {
 		SocketChannel clientSc = privateConnections.get(toNickname);
 		// If could not find socket channel try with server
 		if (null == clientSc) {
@@ -398,20 +428,52 @@ public class Client {
 		return true;
 	}
 
-	private void clientGiveId(SocketChannel sc, long id) throws IOException {
+	/**
+	 * Transmit id token to client to authenticate.
+	 * 
+	 * @param scClient
+	 *            {@code SocketChannel} of user to authenticate to
+	 * @param id
+	 *            given by the user
+	 * @throws IOException
+	 *             if some I/O error occurs with user
+	 */
+	private void clientGiveId(SocketChannel scClient, long id) throws IOException {
 		packetClientGiveId(id);
 		bbout.flip();
-		sc.write(bbout);
+		scClient.write(bbout);
 	}
 
+	/**
+	 * Send a private message
+	 * 
+	 * @param toNickname
+	 *            nickname of user to communicate with
+	 * @param msg
+	 *            message to send
+	 * @return {@code true} if could send message, {@code false} is user was not
+	 *         found
+	 * @throws IOException
+	 *             if some I/O error occurs with user
+	 */
 	private boolean sendPrivateMessage(String toNickname, String msg) throws IOException {
 		packetSendPrivateMessage(msg);
-		return writePrivate(toNickname);
+		return writePrivateRequest(toNickname);
 	}
 
+	/**
+	 * Send a private disconnection message
+	 * 
+	 * @param toNickname
+	 *            nickname of user to disconnect with
+	 * @return {@code true} if could send message, {@code false} is user was not
+	 *         found
+	 * @throws IOException
+	 *             if some I/O error occurs with user
+	 */
 	private boolean sendPrivateDisconnection(String toNickname) throws IOException {
 		packetSendPrivateDisconnection();
-		if (!writePrivate(toNickname)) {
+		if (!writePrivateRequest(toNickname)) {
 			clientGUI.println("No private connection with " + toNickname + ".");
 			return false;
 		}
@@ -522,6 +584,12 @@ public class Client {
 		bbout.putLong(id);
 	}
 
+	/**
+	 * Packet send a private message.
+	 * 
+	 * @param msg
+	 *            message to send
+	 */
 	private void packetSendPrivateMessage(String msg) {
 		bbout.clear();
 		ByteBuffer bbmsg = CS_MESSAGE.encode(msg);
@@ -531,6 +599,9 @@ public class Client {
 		bbout.put(bbmsg);
 	}
 
+	/**
+	 * Packet disconnect private connection.
+	 */
 	private void packetSendPrivateDisconnection() {
 		bbout.clear();
 		bbout.put((byte) 12);
@@ -538,12 +609,19 @@ public class Client {
 
 	/* Commands */
 
-	// Opcode unknown
+	/**
+	 * If an unknown opcode was received.
+	 */
 	private void error() {
 		LOGGER.severe("Unknown opcode from server.");
 	}
 
-	// Opcode 2
+	/**
+	 * If opcode 2, a client has joined.
+	 * 
+	 * @throws IOException
+	 *             if some I/O error occurs
+	 */
 	private void clientHasJoined() throws IOException {
 		int size = readInt(sc, bbin);
 		String nickname = readString(sc, bbin, size, CS_NICKNAME);
@@ -551,7 +629,12 @@ public class Client {
 		clientGUI.println(nickname + " has joined.");
 	}
 
-	// Opcode 3
+	/**
+	 * If opcode 3, list of connected clients.
+	 * 
+	 * @throws IOException
+	 *             if some I/O error occurs
+	 */
 	private void connectedClients() throws IOException {
 		int nb = readInt(sc, bbin);
 		for (int i = 0; i < nb; i++) {
@@ -561,7 +644,12 @@ public class Client {
 		}
 	}
 
-	// Opcode 5
+	/**
+	 * If opcode 5, received a public message
+	 * 
+	 * @throws IOException
+	 *             if some I/O error occurs
+	 */
 	private void receivedMessage() throws IOException {
 		int nicknameSize = readInt(sc, bbin);
 		String nickname = readString(sc, bbin, nicknameSize, CS_NICKNAME);
@@ -570,7 +658,23 @@ public class Client {
 		clientGUI.println("<" + nickname + ">" + " " + msg);
 	}
 
-	// Opcode 7
+	/**
+	 * <p>
+	 * If opcode 7 a private communication request was made. Wait for user
+	 * input.
+	 * </p>
+	 * 
+	 * <p>
+	 * If accept send accept private connection packet.
+	 * </p>
+	 * 
+	 * <p>
+	 * If refuse send refuse private connection packet.
+	 * </p>
+	 * 
+	 * @throws IOException
+	 *             if some I/O error occurs
+	 */
 	private void confirmPrivateConnection() throws IOException {
 		int nicknameSize = readInt(sc, bbin);
 		String nickname = readString(sc, bbin, nicknameSize, CS_NICKNAME);
@@ -584,7 +688,15 @@ public class Client {
 		}
 	}
 
-	// Opcode 9
+	/**
+	 * <p>
+	 * If opcode 9, received an answer for a private connection. <br>
+	 * If answer was yes attempt to connect with given informations.
+	 * </p>
+	 * 
+	 * @throws IOException
+	 *             if some I/O error occurs
+	 */
 	private void answerPrivateConnection() throws IOException {
 		byte accept = readByte(sc, bbin);
 		int nicknameSize = readInt(sc, bbin);
@@ -608,7 +720,12 @@ public class Client {
 		privateConnect(nickname, inet, port, id);
 	}
 
-	// Opcode 16
+	/**
+	 * If opcode 16, received a client has left notification.
+	 * 
+	 * @throws IOException
+	 *             if some I/O error occurs
+	 */
 	private void clientHasLeft() throws IOException {
 		int size = readInt(sc, bbin);
 		String nickname = readString(sc, bbin, size, CS_NICKNAME);
@@ -618,6 +735,13 @@ public class Client {
 
 	/* Other */
 
+	/**
+	 * Check if an user is connected on chat server.
+	 * 
+	 * @param nickname
+	 *            of the user to check
+	 * @return {@code true} if user is connected, {@code false} otherwise
+	 */
 	private boolean isConnectedClient(String nickname) {
 		if (!connectedNicknames.contains(nickname)) {
 			clientGUI.println("Unknown nickname: " + nickname);
@@ -626,6 +750,18 @@ public class Client {
 		return true;
 	}
 
+	/**
+	 * Establish a private connection.
+	 * 
+	 * @param clientNickname
+	 *            nickname of client trying to establish a private connection to
+	 * @param iaServer
+	 *            address of server
+	 * @param port
+	 *            where server listen
+	 * @param id
+	 *            to send to authenticate
+	 */
 	private void privateConnect(String clientNickname, InetAddress iaServer, int port, long id) {
 		if (!privateConnections.containsKey(clientNickname)) {
 			LOGGER.warning(iaServer + " confirmed a private connection that was not requested");
@@ -646,11 +782,27 @@ public class Client {
 		}
 	}
 
+	/**
+	 * Check if a private communication is established with user.
+	 * 
+	 * @param clientNickname
+	 *            nickname of user
+	 * @return {@code true} if is in private communication, {@code false}
+	 *         otherwise
+	 */
 	private boolean isPrivateConnected(String clientNickname) {
 		return (privateConnections.containsKey(clientNickname)
 				|| clientServer.isConnected(clientNickname));
 	}
 
+	/**
+	 * Disconnect from a private communication
+	 * 
+	 * @param clientNickname
+	 *            nickname of user to disconnect with
+	 * @throws IOException
+	 *             if some I/O error occurs
+	 */
 	private void privateDisconnect(String clientNickname) throws IOException {
 		SocketChannel clientSc = privateConnections.get(clientNickname);
 		if (null != clientSc) {
@@ -661,6 +813,15 @@ public class Client {
 		clientServer.closePrivateConnection(clientNickname);
 	}
 
+	/**
+	 * Launch a new thread that will monitor private received message and print
+	 * them.
+	 * 
+	 * @param sc
+	 *            {@code SocketChannel} to monitor
+	 * @param clientNickname
+	 *            nickname of user to monitor
+	 */
 	private void addSocketChannelReader(SocketChannel sc, String clientNickname) {
 		Runnable r = new ThreadPrivateConnection(sc, clientNickname, clientGUI);
 		Thread t = new Thread(r);
