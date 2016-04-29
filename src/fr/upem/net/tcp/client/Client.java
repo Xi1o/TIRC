@@ -198,8 +198,10 @@ public class Client {
 			}
 		} catch (IOException ioe) {
 			if (!hasQuit) {
+				clientGUI.println("Connection lost with server");
 				LOGGER.log(Level.SEVERE, ioe.toString(), ioe);
 			}
+			return;
 		}
 	}
 
@@ -806,6 +808,12 @@ public class Client {
 	private void privateDisconnect(String clientNickname) throws IOException {
 		SocketChannel clientSc = privateConnections.get(clientNickname);
 		if (null != clientSc) {
+			Thread t = privateConnectionThreads.get(clientNickname);
+			if(null == t) {
+				LOGGER.severe("Missing private connection thread");
+				return;
+			}
+			t.interrupt();
 			privateConnections.remove(clientNickname);
 			clientSc.close();
 			return;

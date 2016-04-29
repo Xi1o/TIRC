@@ -92,14 +92,13 @@ public class ClientServer {
 					} catch (AsynchronousCloseException ace) {
 						// client timeout continue
 						continue;
-						// disconnected with client
-					} catch (IOException ioe) {
+					} catch (IOException ioe) { // disconnected with client
 						LOGGER.log(Level.WARNING, ioe.toString(), ioe);
 					} catch (InterruptedException ie) {
 						LOGGER.log(Level.INFO, "Server interrupted: " + ie.toString(), ie);
 						return;
 					} finally {
-						clientGUI.println("Private connection closed.");
+						LOGGER.info("Private connection closed.");
 						silentlyClose(client);
 					}
 				} catch (ClosedChannelException ace) {
@@ -152,10 +151,14 @@ public class ClientServer {
 					return;
 				}
 			} catch (IOException ioe) {
-				if (!hasClosed) {
+				if (!hasClosed && socketChannelClients.containsKey(nicknameServed)) {
 					clientGUI.println("Lost private connection with " + nicknameServed);
 					LOGGER.warning("Lost private connection with " + nicknameServed);
 					throw ioe;
+				} else {
+					clientGUI.println("Closed private connection with " + nicknameServed);
+					LOGGER.info("Closed private connection with " + nicknameServed);
+					return;
 				}
 			}
 		}

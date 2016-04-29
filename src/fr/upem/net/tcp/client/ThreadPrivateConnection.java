@@ -17,9 +17,12 @@ public class ThreadPrivateConnection implements Runnable {
 	/**
 	 * Constructor.
 	 * 
-	 * @param sc {@link SocketChannel} to monitor
-	 * @param nickname of client to monitor
-	 * @param clientGUI GUI where to print
+	 * @param sc
+	 *            {@link SocketChannel} to monitor
+	 * @param nickname
+	 *            of client to monitor
+	 * @param clientGUI
+	 *            GUI where to print
 	 */
 	public ThreadPrivateConnection(SocketChannel sc, String nickname, ClientGUI clientGUI) {
 		this.sc = sc;
@@ -45,7 +48,7 @@ public class ThreadPrivateConnection implements Runnable {
 		String msg = readString(sc, bb, msgSize, Client.CS_MESSAGE);
 		clientGUI.println("*" + nickname + "* " + msg);
 	}
-
+	
 	@Override
 	public void run() {
 		while (!Thread.interrupted()) {
@@ -64,7 +67,11 @@ public class ThreadPrivateConnection implements Runnable {
 					return;
 				}
 			} catch (IOException ioe) {
-				clientGUI.println("Private connection lost with " + nickname);
+				if (!Thread.interrupted()) {
+					clientGUI.println("Private connection lost with " + nickname);
+				} else {
+					clientGUI.println("Private connection closed with " + nickname);
+				}
 				return;
 			}
 		}
