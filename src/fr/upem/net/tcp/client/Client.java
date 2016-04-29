@@ -6,6 +6,7 @@ import static fr.upem.net.tcp.client.ScReaders.readInt;
 import static fr.upem.net.tcp.client.ScReaders.readLong;
 import static fr.upem.net.tcp.client.ScReaders.readString;
 
+import java.awt.Color;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
@@ -198,7 +199,7 @@ public class Client {
 			}
 		} catch (IOException ioe) {
 			if (!hasQuit) {
-				clientGUI.println("Connection lost with server");
+				clientGUI.println("Connection lost with server", Color.red);
 				LOGGER.log(Level.SEVERE, ioe.toString(), ioe);
 			}
 			return;
@@ -232,11 +233,12 @@ public class Client {
 			}
 			String toNickname = argsInput[1];
 			if (toNickname.equals(nickname)) {
-				clientGUI.println("Cannot request a private communication with yourself.");
+				clientGUI.println("Cannot request a private communication with yourself.",
+						Color.red);
 				break;
 			}
 			if (isPrivateConnected(toNickname)) {
-				clientGUI.println("You're already connected with " + toNickname + ".");
+				clientGUI.println("You're already connected with " + toNickname + ".", Color.red);
 				break;
 			}
 			packetClientInfoRequest(toNickname);
@@ -249,17 +251,18 @@ public class Client {
 			}
 			toNickname = argsInput[1];
 			if (toNickname.equals(nickname)) {
-				clientGUI.println("Cannot send a private message to yourself.");
+				clientGUI.println("Cannot send a private message to yourself.", Color.red);
 				break;
 			}
 			String msg = argsInput[2];
 			if (!sendPrivateMessage(toNickname, msg)) {
 				clientGUI.println(
-						"You must request a private connection before: /private " + toNickname);
+						"You must request a private connection before: /private " + toNickname,
+						Color.red);
 				bbout.clear();
 				break;
 			}
-			clientGUI.println("*" + nickname + "* " + msg);
+			clientGUI.println("*" + nickname + "* " + msg, Color.orange);
 			bbout.clear();
 			break;
 		case "/q":
@@ -272,7 +275,7 @@ public class Client {
 		default:
 			String command = argsInput[0];
 			if (command.startsWith("/")) {
-				clientGUI.println("Unknown command: " + argsInput[0]);
+				clientGUI.println("Unknown command: " + argsInput[0], Color.red);
 				break;
 			}
 			packetMessage(command);
@@ -310,7 +313,7 @@ public class Client {
 	 *            to print usage
 	 */
 	private void usageCommand(String command) {
-		clientGUI.println("Insufficient arguments for command " + command);
+		clientGUI.println("Insufficient arguments for command " + command, Color.red);
 	}
 
 	/**
@@ -339,8 +342,8 @@ public class Client {
 	 * Print all connected clients
 	 */
 	private void printConnectedClients() {
-		clientGUI.println("Connected: ");
-		connectedNicknames.forEach(n -> clientGUI.println("\t" + n));
+		clientGUI.println("Connected: ", Color.blue);
+		connectedNicknames.forEach(n -> clientGUI.println("\t" + n, Color.blue));
 	}
 
 	/* Request to server */
@@ -362,11 +365,11 @@ public class Client {
 		byte code = readByte(sc, bbin);
 		if (code == 0) {
 			numberConnected = readInt(sc, bbin);
-			clientGUI.println("You are connected as " + nickname + ".");
-			clientGUI.println(numberConnected + " person(s) connected.");
+			clientGUI.println("You are connected as " + nickname + ".", Color.blue);
+			clientGUI.println(numberConnected + " person(s) connected.", Color.blue);
 			return true;
 		} else {
-			clientGUI.println("Your nickname is already taken.");
+			clientGUI.println("Your nickname is already taken.", Color.red);
 			return false;
 		}
 	}
@@ -385,7 +388,7 @@ public class Client {
 			id = randomId.nextLong();
 		} while (id == (long) 0);
 		if (!clientServer.registerClient(nickname, id)) {
-			clientGUI.println("You are already connected with " + nickname + ".");
+			clientGUI.println("You are already connected with " + nickname + ".", Color.red);
 			return;
 		}
 		packetAcceptPrivateCommunication(nickname, id);
@@ -476,7 +479,7 @@ public class Client {
 	private boolean sendPrivateDisconnection(String toNickname) throws IOException {
 		packetSendPrivateDisconnection();
 		if (!writePrivateRequest(toNickname)) {
-			clientGUI.println("No private connection with " + toNickname + ".");
+			clientGUI.println("No private connection with " + toNickname + ".", Color.red);
 			return false;
 		}
 		privateDisconnect(toNickname);
@@ -628,7 +631,7 @@ public class Client {
 		int size = readInt(sc, bbin);
 		String nickname = readString(sc, bbin, size, CS_NICKNAME);
 		connectedNicknames.add(nickname);
-		clientGUI.println(nickname + " has joined.");
+		clientGUI.println(nickname + " has joined.", Color.blue);
 	}
 
 	/**
@@ -657,7 +660,7 @@ public class Client {
 		String nickname = readString(sc, bbin, nicknameSize, CS_NICKNAME);
 		int msgSize = readInt(sc, bbin);
 		String msg = readString(sc, bbin, msgSize, CS_MESSAGE);
-		clientGUI.println("<" + nickname + ">" + " " + msg);
+		clientGUI.println("<" + nickname + ">" + " " + msg, Color.black);
 	}
 
 	/**
@@ -681,7 +684,8 @@ public class Client {
 		int nicknameSize = readInt(sc, bbin);
 		String nickname = readString(sc, bbin, nicknameSize, CS_NICKNAME);
 		clientGUI.println(
-				nickname + " has requested a private communication with you.\n" + "Accept ? (y/n)");
+				nickname + " has requested a private communication with you.\n" + "Accept ? (y/n)",
+				Color.magenta);
 		String input = "y"; // TODO get input from clientGui
 		if (input.equals("y")) {
 			acceptPrivateConnection(nickname);
@@ -704,7 +708,7 @@ public class Client {
 		int nicknameSize = readInt(sc, bbin);
 		String nickname = readString(sc, bbin, nicknameSize, CS_NICKNAME);
 		if (accept == (byte) 1) {
-			clientGUI.println(nickname + " has refused private communication.");
+			clientGUI.println(nickname + " has refused private communication.", Color.red);
 			return;
 		}
 		byte ipv = readByte(sc, bbin);
@@ -732,7 +736,7 @@ public class Client {
 		int size = readInt(sc, bbin);
 		String nickname = readString(sc, bbin, size, CS_NICKNAME);
 		connectedNicknames.remove(nickname);
-		clientGUI.println(nickname + " has left.");
+		clientGUI.println(nickname + " has left.", Color.blue);
 	}
 
 	/* Other */
@@ -746,7 +750,7 @@ public class Client {
 	 */
 	private boolean isConnectedClient(String nickname) {
 		if (!connectedNicknames.contains(nickname)) {
-			clientGUI.println("Unknown nickname: " + nickname);
+			clientGUI.println("Unknown nickname: " + nickname, Color.red);
 			return false;
 		}
 		return true;
@@ -776,8 +780,10 @@ public class Client {
 			clientGiveId(clientSc, id);
 			addSocketChannelReader(clientSc, clientNickname);
 			privateConnections.put(clientNickname, clientSc);
-			clientGUI.println("Private connection established with " + clientNickname + ".");
-			clientGUI.println("To communicate with him privately use: /w " + clientNickname);
+			clientGUI.println("Private connection established with " + clientNickname + ".",
+					Color.blue);
+			clientGUI.println("To communicate with him privately use: /w " + clientNickname,
+					Color.blue);
 		} catch (IOException ioe) {
 			LOGGER.log(Level.WARNING, "Could not connect to " + clientNickname + ": " + ioe, ioe);
 			return;
@@ -809,7 +815,7 @@ public class Client {
 		SocketChannel clientSc = privateConnections.get(clientNickname);
 		if (null != clientSc) {
 			Thread t = privateConnectionThreads.get(clientNickname);
-			if(null == t) {
+			if (null == t) {
 				LOGGER.severe("Missing private connection thread");
 				return;
 			}

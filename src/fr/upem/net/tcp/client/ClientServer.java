@@ -5,6 +5,7 @@ import static fr.upem.net.tcp.client.ScReaders.readInt;
 import static fr.upem.net.tcp.client.ScReaders.readLong;
 import static fr.upem.net.tcp.client.ScReaders.readString;
 
+import java.awt.Color;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
@@ -124,7 +125,7 @@ public class ClientServer {
 	private void serve(SocketChannel sc) throws IOException, InterruptedException {
 		ByteBuffer bbin = ByteBuffer.allocate(Client.BUFSIZ);
 		if (!authentication(sc, bbin)) {
-			clientGUI.println("Could not authentificate client");
+			clientGUI.println("Could not authentificate client", Color.red);
 			LOGGER.warning(
 					Client.remoteAddressToString(sc) + ": attempted to connected with false token");
 			return;
@@ -144,7 +145,7 @@ public class ClientServer {
 					break;
 				case 12:
 					hasClosed = true;
-					clientGUI.println(nicknameServed + " has closed private connection.");
+					clientGUI.println(nicknameServed + " has closed private connection.", Color.blue);
 					return;
 				default:
 					LOGGER.warning("Unknown opcode: " + opcode + " from " + nicknameServed);
@@ -152,11 +153,11 @@ public class ClientServer {
 				}
 			} catch (IOException ioe) {
 				if (!hasClosed && socketChannelClients.containsKey(nicknameServed)) {
-					clientGUI.println("Lost private connection with " + nicknameServed);
+					clientGUI.println("Lost private connection with " + nicknameServed, Color.red);
 					LOGGER.warning("Lost private connection with " + nicknameServed);
 					throw ioe;
 				} else {
-					clientGUI.println("Closed private connection with " + nicknameServed);
+					clientGUI.println("Closed private connection with " + nicknameServed, Color.blue);
 					LOGGER.info("Closed private connection with " + nicknameServed);
 					return;
 				}
@@ -305,8 +306,8 @@ public class ClientServer {
 		synchronized (lock) {
 			socketChannelClients.put(clientNickname, sc);
 		}
-		clientGUI.println("Private connection established with " + clientNickname + ".");
-		clientGUI.println("To communicate with him privately use: /w " + clientNickname);
+		clientGUI.println("Private connection established with " + clientNickname + ".", Color.blue);
+		clientGUI.println("To communicate with him privately use: /w " + clientNickname, Color.blue);
 		return true;
 	}
 	/* handle opcode */
@@ -327,6 +328,6 @@ public class ClientServer {
 			throws IOException {
 		int msgSize = readInt(sc, bb);
 		String msg = readString(sc, bb, msgSize, Client.CS_MESSAGE);
-		clientGUI.println("*" + nickname + "* " + msg);
+		clientGUI.println("*" + nickname + "* " + msg, Color.orange);
 	}
 }

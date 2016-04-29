@@ -4,6 +4,7 @@ import static fr.upem.net.tcp.client.ScReaders.readByte;
 import static fr.upem.net.tcp.client.ScReaders.readInt;
 import static fr.upem.net.tcp.client.ScReaders.readString;
 
+import java.awt.Color;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.SocketChannel;
@@ -46,7 +47,7 @@ public class ThreadPrivateConnection implements Runnable {
 			throws IOException {
 		int msgSize = readInt(sc, bb);
 		String msg = readString(sc, bb, msgSize, Client.CS_MESSAGE);
-		clientGUI.println("*" + nickname + "* " + msg);
+		clientGUI.println("*" + nickname + "* " + msg, Color.orange);
 	}
 	
 	@Override
@@ -59,18 +60,18 @@ public class ThreadPrivateConnection implements Runnable {
 					receivedPrivateMessage(sc, bbin, nickname);
 					break;
 				case 12:
-					clientGUI.println(nickname + " has closed private connection.");
+					clientGUI.println(nickname + " has closed private connection.", Color.blue);
 					return;
 				default:
 					System.err.println("Unknown opcode: " + opcode);
-					clientGUI.println("Private connection lost with " + nickname);
+					clientGUI.println("Private connection lost with " + nickname, Color.red);
 					return;
 				}
 			} catch (IOException ioe) {
 				if (!Thread.interrupted()) {
-					clientGUI.println("Private connection lost with " + nickname);
+					clientGUI.println("Private connection lost with " + nickname, Color.red);
 				} else {
-					clientGUI.println("Private connection closed with " + nickname);
+					clientGUI.println("Private connection closed with " + nickname, Color.blue);
 				}
 				return;
 			}
