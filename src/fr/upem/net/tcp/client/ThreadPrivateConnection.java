@@ -14,6 +14,7 @@ public class ThreadPrivateConnection implements Runnable {
 	private final String nickname;
 	private final ByteBuffer bbin = ByteBuffer.allocate(Client.BUFSIZ);
 	private final ClientGUI clientGUI;
+	private final Client client;
 
 	/**
 	 * Constructor.
@@ -25,10 +26,12 @@ public class ThreadPrivateConnection implements Runnable {
 	 * @param clientGUI
 	 *            GUI where to print
 	 */
-	public ThreadPrivateConnection(SocketChannel sc, String nickname, ClientGUI clientGUI) {
+	public ThreadPrivateConnection(SocketChannel sc, String nickname, ClientGUI clientGUI,
+			Client client) {
 		this.sc = sc;
 		this.nickname = nickname;
 		this.clientGUI = clientGUI;
+		this.client = client;
 	}
 
 	/**
@@ -49,7 +52,7 @@ public class ThreadPrivateConnection implements Runnable {
 		String msg = readString(sc, bb, msgSize, Client.CS_MESSAGE);
 		clientGUI.println("*" + nickname + "* " + msg, Color.orange);
 	}
-	
+
 	@Override
 	public void run() {
 		while (!Thread.interrupted()) {
@@ -61,10 +64,12 @@ public class ThreadPrivateConnection implements Runnable {
 					break;
 				case 12:
 					clientGUI.println(nickname + " has closed private connection.", Color.blue);
+					client.removePrivateConnection(nickname);
 					return;
 				default:
 					System.err.println("Unknown opcode: " + opcode);
 					clientGUI.println("Private connection lost with " + nickname, Color.red);
+					client.removePrivateConnection(nickname);
 					return;
 				}
 			} catch (IOException ioe) {
@@ -73,6 +78,7 @@ public class ThreadPrivateConnection implements Runnable {
 				} else {
 					clientGUI.println("Private connection closed with " + nickname, Color.blue);
 				}
+				client.removePrivateConnection(nickname);
 				return;
 			}
 		}

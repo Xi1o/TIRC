@@ -17,6 +17,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Objects;
 import java.util.Random;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.FileHandler;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -53,7 +54,7 @@ public class Client {
 	/** Set of nicknames of connected clients. */
 	private final HashSet<String> connectedNicknames = new HashSet<>();
 	/** Nicknames in private connections with client's server */
-	private final HashMap<String, SocketChannel> privateConnections = new HashMap<>();
+	private final ConcurrentHashMap<String, SocketChannel> privateConnections = new ConcurrentHashMap<>();
 	/** User has close client */
 	private boolean hasQuit;
 	private final ClientGUI clientGUI = new ClientGUI(this);
@@ -61,6 +62,7 @@ public class Client {
 	private final Random randomId = new Random();
 	/** Server where client listen for private connection */
 	private final ClientServer clientServer;
+	private HashSet<String> requestPrivateConnection = new HashSet<>();
 	private HashSet<String> waitingForAcceptPrivate = new HashSet<>();
 
 	@FunctionalInterface
@@ -238,13 +240,24 @@ public class Client {
 						Color.red);
 				break;
 			}
+			if (hasRequestPrivateConnection(toNickname)) {
+				clientGUI.println(
+						"You already made a private connection request with " + toNickname + ".",
+						Color.red);
+				break;
+			}
 			if (isPrivateConnected(toNickname)) {
 				clientGUI.println("You're already connected with " + toNickname + ".", Color.red);
 				break;
 			}
+			if (waitingForAcceptPrivate.contains(toNickname)) {
+				clientGUI.println(toNickname + " has already requested a private connection.",
+						Color.red);
+				break;
+			}
 			packetClientInfoRequest(toNickname);
 			// Remember that you requested a private connection
-			privateConnections.put(toNickname, null);
+			requestPrivateConnection.add(toNickname);
 			clientGUI.println(
 					"Private request with " + toNickname + " made, waiting for confirmation.",
 					Color.blue);
@@ -274,7 +287,7 @@ public class Client {
 				break;
 			}
 			toNickname = argsInput[1];
-			if (!!isConnectedClient(toNickname)) {
+			if (!isConnectedClient(toNickname)) {
 				break;
 			}
 			sendPrivateDisconnection(toNickname);
@@ -290,6 +303,7 @@ public class Client {
 						Color.red);
 				break;
 			}
+			clientGUI.println("Private connection with " + toNickname + " accepted.", Color.blue);
 			break;
 		case "/n":
 			if (!hasAtLeastArgs(argsInput, 2)) {
@@ -301,6 +315,7 @@ public class Client {
 						Color.red);
 				break;
 			}
+			clientGUI.println("Private connection with " + toNickname + " refused.", Color.blue);
 			break;
 		default:
 			String command = argsInput[0];
@@ -741,6 +756,7 @@ public class Client {
 		String nickname = readString(sc, bbin, nicknameSize, CS_NICKNAME);
 		if (accept == (byte) 1) {
 			clientGUI.println(nickname + " has refused private communication.", Color.red);
+			requestPrivateConnection.remove(nickname);
 			return;
 		}
 		byte ipv = readByte(sc, bbin);
@@ -774,6 +790,7 @@ public class Client {
 		privateConnections.remove(nickname);
 		clientServer.revokeRequest(nickname);
 		waitingForAcceptPrivate.remove(nickname);
+		requestPrivateConnection.remove(nickname);
 	}
 
 	/* Other */
@@ -806,7 +823,7 @@ public class Client {
 	 *            to send to authenticate
 	 */
 	private void privateConnect(String clientNickname, InetAddress iaServer, int port, long id) {
-		if (!privateConnections.containsKey(clientNickname)) {
+		if (!requestPrivateConnection.contains(clientNickname)) {
 			LOGGER.warning(iaServer + " confirmed a private connection that was not requested");
 			return;
 		}
@@ -817,6 +834,7 @@ public class Client {
 			clientGiveId(clientSc, id);
 			addSocketChannelReader(clientSc, clientNickname);
 			privateConnections.put(clientNickname, clientSc);
+			requestPrivateConnection.remove(clientNickname);
 			clientGUI.println("Private connection established with " + clientNickname + ".",
 					Color.blue);
 			clientGUI.println("To communicate with him privately use: /w " + clientNickname,
@@ -838,6 +856,10 @@ public class Client {
 	private boolean isPrivateConnected(String clientNickname) {
 		return (privateConnections.containsKey(clientNickname)
 				|| clientServer.isConnected(clientNickname));
+	}
+
+	private boolean hasRequestPrivateConnection(String clientNickname) {
+		return requestPrivateConnection.contains(clientNickname);
 	}
 
 	/**
@@ -874,7 +896,7 @@ public class Client {
 	 *            nickname of user to monitor
 	 */
 	private void addSocketChannelReader(SocketChannel sc, String clientNickname) {
-		Runnable r = new ThreadPrivateConnection(sc, clientNickname, clientGUI);
+		Runnable r = new ThreadPrivateConnection(sc, clientNickname, clientGUI, this);
 		Thread t = new Thread(r);
 		t.start();
 		privateConnectionThreads.put(clientNickname, t);
@@ -894,5 +916,9 @@ public class Client {
 		} catch (IOException ioe) {
 			return "???";
 		}
+	}
+
+	public void removePrivateConnection(String toNickname) {
+		privateConnections.remove(toNickname);
 	}
 }
