@@ -155,6 +155,7 @@ public class ClientServer {
 				if (!hasClosed && socketChannelClients.containsKey(nicknameServed)) {
 					clientGUI.println("Lost private connection with " + nicknameServed, Color.red);
 					LOGGER.warning("Lost private connection with " + nicknameServed);
+					unregisterClient(nicknameServed);
 					throw ioe;
 				} else {
 					clientGUI.println("Closed private connection with " + nicknameServed, Color.blue);
@@ -240,6 +241,16 @@ public class ClientServer {
 			return false;
 		}
 		return true;
+	}
+	
+	private void unregisterClient(String nickname) {
+		SocketChannel scClient = socketChannelClients.get(nickname);
+		socketChannelClients.remove(nickname);
+		nicknamesConnected.remove(scClient);
+	}
+	
+	public void revokeRequest(String nickname) {
+		privateConnectionsId.remove(nickname);
 	}
 
 	/**

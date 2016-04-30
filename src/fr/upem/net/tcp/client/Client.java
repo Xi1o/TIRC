@@ -61,6 +61,7 @@ public class Client {
 	private final Random randomId = new Random();
 	/** Server where client listen for private connection */
 	private final ClientServer clientServer;
+	private HashSet<String> waitingForAcceptPrivate = new HashSet<>();
 
 	@FunctionalInterface
 	private interface Handeable {
@@ -244,6 +245,9 @@ public class Client {
 			packetClientInfoRequest(toNickname);
 			// Remember that you requested a private connection
 			privateConnections.put(toNickname, null);
+			clientGUI.println(
+					"Private request with " + toNickname + " made, waiting for confirmation.",
+					Color.blue);
 			break;
 		case "/w":
 			if (!hasAtLeastArgs(argsInput, 3)) {
@@ -266,11 +270,37 @@ public class Client {
 			bbout.clear();
 			break;
 		case "/q":
-			if (!hasAtLeastArgs(argsInput, 2) || !isConnectedClient(argsInput[1])) {
+			if (!hasAtLeastArgs(argsInput, 2)) {
 				break;
 			}
-			sendPrivateDisconnection(argsInput[1]);
+			toNickname = argsInput[1];
+			if (!!isConnectedClient(toNickname)) {
+				break;
+			}
+			sendPrivateDisconnection(toNickname);
 			bbout.clear();
+			break;
+		case "/y":
+			if (!hasAtLeastArgs(argsInput, 2)) {
+				break;
+			}
+			toNickname = argsInput[1];
+			if (!acceptPrivateInput(toNickname, true)) {
+				clientGUI.println(toNickname + " did not request for private communication.",
+						Color.red);
+				break;
+			}
+			break;
+		case "/n":
+			if (!hasAtLeastArgs(argsInput, 2)) {
+				break;
+			}
+			toNickname = argsInput[1];
+			if (!acceptPrivateInput(toNickname, false)) {
+				clientGUI.println(toNickname + " did not request for private communication.",
+						Color.red);
+				break;
+			}
 			break;
 		default:
 			String command = argsInput[0];
@@ -296,6 +326,18 @@ public class Client {
 			clientGUI.exit();
 			close();
 		}
+	}
+
+	private boolean acceptPrivateInput(String toNickname, boolean accept) throws IOException {
+		if (!waitingForAcceptPrivate.remove(toNickname)) {
+			return false;
+		}
+		if (accept) {
+			acceptPrivateConnection(toNickname);
+		} else {
+			refusePrivateConnection(toNickname);
+		}
+		return true;
 	}
 
 	private boolean hasAtLeastArgs(String[] args, int expectedArgsLength) {
@@ -392,8 +434,6 @@ public class Client {
 			return;
 		}
 		packetAcceptPrivateCommunication(nickname, id);
-		bbout.flip();
-		sc.write(bbout);
 	}
 
 	/**
@@ -406,8 +446,6 @@ public class Client {
 	 */
 	private void refusePrivateConnection(String nickname) throws IOException {
 		packetRefusePrivateCommunication(nickname);
-		bbout.flip();
-		sc.write(bbout);
 	}
 
 	/* Request to another client */
@@ -683,15 +721,9 @@ public class Client {
 	private void confirmPrivateConnection() throws IOException {
 		int nicknameSize = readInt(sc, bbin);
 		String nickname = readString(sc, bbin, nicknameSize, CS_NICKNAME);
-		clientGUI.println(
-				nickname + " has requested a private communication with you.\n" + "Accept ? (y/n)",
-				Color.magenta);
-		String input = "y"; // TODO get input from clientGui
-		if (input.equals("y")) {
-			acceptPrivateConnection(nickname);
-		} else {
-			refusePrivateConnection(nickname);
-		}
+		clientGUI.println(nickname + " has requested a private communication with you.\n"
+				+ "Accept ? (/y " + nickname + " or /n " + nickname + ")", Color.magenta);
+		waitingForAcceptPrivate.add(nickname);
 	}
 
 	/**
@@ -737,6 +769,11 @@ public class Client {
 		String nickname = readString(sc, bbin, size, CS_NICKNAME);
 		connectedNicknames.remove(nickname);
 		clientGUI.println(nickname + " has left.", Color.blue);
+
+		// If made or received private connection request, reset
+		privateConnections.remove(nickname);
+		clientServer.revokeRequest(nickname);
+		waitingForAcceptPrivate.remove(nickname);
 	}
 
 	/* Other */

@@ -86,6 +86,7 @@ public class ClientGUI extends JFrame {
         setResizable(true);
         setDefaultCloseOperation(WindowConstants.DO_NOTHING_ON_CLOSE);
         setVisible(true);
+        setMinimumSize(new Dimension(200, 250));
     }
 
     private void setBehaviorOnClose() {
