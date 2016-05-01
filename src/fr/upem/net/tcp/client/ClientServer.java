@@ -21,6 +21,12 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
+/**
+ * A Client acting as a Server.
+ * 
+ * @author Cheneau and Lee
+ *
+ */
 public class ClientServer {
 	private static final Logger LOGGER = Logger.getLogger("ClientLogger");
 	private static final int MAX_THREADS = 10;
@@ -340,6 +346,7 @@ public class ClientServer {
 	 * Launch server in ready state.
 	 * 
 	 * @throws IOException
+	 *             if some I/O error occurs
 	 */
 	public void launch() throws IOException {
 		for (int i = 0; i < MAX_THREADS; i++) {
@@ -384,7 +391,7 @@ public class ClientServer {
 	 * 
 	 * @param toNickname
 	 *            nickname of client to send message to
-	 * @param bbmsg
+	 * @param bb
 	 *            {@link ByteBuffer} containing the message
 	 * @return {@code true} if message was sent, {@code false} if client was not
 	 *         found

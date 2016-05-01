@@ -5,6 +5,12 @@ import java.nio.ByteBuffer;
 import java.nio.channels.SocketChannel;
 import java.nio.charset.Charset;
 
+/**
+ * Utility class for reading {@code ByteBuffer}s.
+ * 
+ * @author Cheneau and Lee
+ *
+ */
 public class ScReaders {
 
 	private ScReaders() {
@@ -110,7 +116,8 @@ public class ScReaders {
 	 * @throws IOException
 	 *             If some other I/O error occurs.
 	 */
-	public static String readString(SocketChannel sc, ByteBuffer bb, int size, Charset cs) throws IOException {
+	public static String readString(SocketChannel sc, ByteBuffer bb, int size, Charset cs)
+			throws IOException {
 		bb.clear();
 		bb.limit(size);
 		if (!readFully(sc, bb)) {
@@ -134,7 +141,8 @@ public class ScReaders {
 	 * @throws IOException
 	 *             If some other I/O error occurs.
 	 */
-	public static byte[] readAddress(SocketChannel sc, ByteBuffer bb, boolean isIpv4) throws IOException {
+	public static byte[] readAddress(SocketChannel sc, ByteBuffer bb, boolean isIpv4)
+			throws IOException {
 		int size = (isIpv4) ? 4 : 32;
 		bb.clear();
 		bb.limit(size);
@@ -146,16 +154,14 @@ public class ScReaders {
 		bb.get(addr);
 		return addr;
 	}
-	
+
 	/**
 	 * Read the specified amount of {@code byte}s.
 	 * 
 	 * @param sc
 	 *            {@code SocketChannel} to read from.
-	 * @param bb
-	 *            {@code ByteBuffer} to save data in.
-	 * @param limit
-	 *            number of bytes to be read
+	 * @param size
+	 *            of the file to be read
 	 * @return the read bytes as an array of bytes
 	 * @throws IOException
 	 *             If some other I/O error occurs.

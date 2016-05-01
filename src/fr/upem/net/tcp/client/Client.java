@@ -29,7 +29,7 @@ import java.util.logging.SimpleFormatter;
 /**
  * Class used as a client using the TIRC protocol.
  * 
- * @author Cheneau & Lee
+ * @author Cheneau and Lee
  *
  */
 public class Client {
@@ -85,8 +85,8 @@ public class Client {
 
 	/* Core */
 
-	private Client(SocketChannel sc, ByteBuffer bbin, ByteBuffer bbout, String nickname, ClientServer clientServer,
-			int listenport) throws SecurityException, IOException {
+	private Client(SocketChannel sc, ByteBuffer bbin, ByteBuffer bbout, String nickname,
+			ClientServer clientServer, int listenport) throws SecurityException, IOException {
 		this.sc = sc;
 		this.bbin = bbin;
 		this.bbout = bbout;
@@ -109,8 +109,10 @@ public class Client {
 	 *            communication
 	 * @return a new client.
 	 * @throws IOException
+	 *             if some I/O error occurs
 	 */
-	public static Client create(InetSocketAddress host, String nickname, int listenport) throws IOException {
+	public static Client create(InetSocketAddress host, String nickname, int listenport)
+			throws IOException {
 		Objects.requireNonNull(host);
 		Objects.requireNonNull(nickname);
 		if (listenport < 0 || listenport > 65535) {
@@ -251,11 +253,14 @@ public class Client {
 			}
 			String toNickname = argsInput[1];
 			if (toNickname.equals(nickname)) {
-				clientGUI.println("Cannot request a private communication with yourself.", Color.red);
+				clientGUI.println("Cannot request a private communication with yourself.",
+						Color.red);
 				break;
 			}
 			if (hasRequestPrivateConnection(toNickname)) {
-				clientGUI.println("You already made a private connection request with " + toNickname + ".", Color.red);
+				clientGUI.println(
+						"You already made a private connection request with " + toNickname + ".",
+						Color.red);
 				break;
 			}
 			if (isPrivateConnected(toNickname)) {
@@ -263,14 +268,16 @@ public class Client {
 				break;
 			}
 			if (pendingPrivateConnections.contains(toNickname)) {
-				clientGUI.println("You already have a pending private connection request from " + toNickname + ".",
-						Color.red);
+				clientGUI.println("You already have a pending private connection request from "
+						+ toNickname + ".", Color.red);
 				break;
 			}
 			packetClientInfoRequest(toNickname);
 			// Remember that you requested a private connection
 			requestsPrivateConnection.add(toNickname);
-			clientGUI.println("Private request with " + toNickname + " made, waiting for confirmation.", Color.blue);
+			clientGUI.println(
+					"Private request with " + toNickname + " made, waiting for confirmation.",
+					Color.blue);
 			break;
 		case "/w":
 			if (!hasAtLeastArgs(argsInput, 3)) {
@@ -283,7 +290,9 @@ public class Client {
 			}
 			String msg = argsInput[2];
 			if (!sendPrivateMessage(toNickname, msg)) {
-				clientGUI.println("You must request a private connection before: /private " + toNickname, Color.red);
+				clientGUI.println(
+						"You must request a private connection before: /private " + toNickname,
+						Color.red);
 				bbout.clear();
 				break;
 			}
@@ -307,17 +316,22 @@ public class Client {
 				break;
 			}
 			if (filesToSend.containsKey(toNickname)) {
-				clientGUI.println("You are already transfering a file with " + toNickname + ".", Color.red);
+				clientGUI.println("You are already transfering a file with " + toNickname + ".",
+						Color.red);
 				break;
 			}
 			if (!sendFileTransferRequest(toNickname, path)) {
-				clientGUI.println("You must request a private connection before: /private " + toNickname, Color.red);
+				clientGUI.println(
+						"You must request a private connection before: /private " + toNickname,
+						Color.red);
 				bbout.clear();
 				break;
 			}
 			// remember you want to send that file to him
 			filesToSend.put(toNickname, path);
-			clientGUI.println("File transfer with " + toNickname + " made, waiting for confirmation.", Color.blue);
+			clientGUI.println(
+					"File transfer with " + toNickname + " made, waiting for confirmation.",
+					Color.blue);
 			bbout.clear();
 			break;
 		case "/q": // Quit private connection
@@ -337,7 +351,8 @@ public class Client {
 			}
 			toNickname = argsInput[1];
 			if (!acceptPrivateInput(toNickname, true)) {
-				clientGUI.println(toNickname + " did not request for private communication.", Color.red);
+				clientGUI.println(toNickname + " did not request for private communication.",
+						Color.red);
 				break;
 			}
 			clientGUI.println("Private connection with " + toNickname + " accepted.", Color.blue);
@@ -348,7 +363,8 @@ public class Client {
 			}
 			toNickname = argsInput[1];
 			if (!acceptPrivateInput(toNickname, false)) {
-				clientGUI.println(toNickname + " did not request for private communication.", Color.red);
+				clientGUI.println(toNickname + " did not request for private communication.",
+						Color.red);
 				break;
 			}
 			clientGUI.println("Private connection with " + toNickname + " refused.", Color.blue);
@@ -599,6 +615,7 @@ public class Client {
 	 * @param nickname
 	 *            to send the data to
 	 * @throws IOException
+	 *             if some I/O error occurs
 	 */
 	public void sendFile(String nickname) throws IOException {
 		DualConnection connection = privateConnections.get(nickname);
@@ -840,6 +857,7 @@ public class Client {
 	 * @param msg
 	 *            message to send
 	 * @throws IOException
+	 *             if some I/O error occurs
 	 */
 	private void packetSendFileTransferRequest(Path path) throws IOException {
 		long filesize = Files.size(path);
@@ -859,10 +877,13 @@ public class Client {
 	 * @param path
 	 *            to the file to be sent
 	 * @throws IOException
+	 *             if some I/O error occurs
+	 * @return the {@code ByteBuffer} containing the packet
 	 */
 	public static ByteBuffer packetFile(Path path) throws IOException {
 		long filesize = Files.size(path);
-		ByteBuffer bbFile = ByteBuffer.allocate(Byte.BYTES + Long.BYTES + Byte.BYTES * (int) filesize);
+		ByteBuffer bbFile = ByteBuffer
+				.allocate(Byte.BYTES + Long.BYTES + Byte.BYTES * (int) filesize);
 		byte[] data = Files.readAllBytes(path);
 		bbFile.put((byte) 16);
 		bbFile.putLong(filesize);
@@ -949,8 +970,8 @@ public class Client {
 	private void confirmPrivateConnection() throws IOException {
 		int nicknameSize = readInt(sc, bbin);
 		String nickname = readString(sc, bbin, nicknameSize, CS_NICKNAME);
-		clientGUI.println(nickname + " has requested a private communication with you.\n" + "Accept ? (/y " + nickname
-				+ " or /n " + nickname + ")", Color.magenta);
+		clientGUI.println(nickname + " has requested a private communication with you.\n"
+				+ "Accept ? (/y " + nickname + " or /n " + nickname + ")", Color.magenta);
 		pendingPrivateConnections.add(nickname);
 	}
 
@@ -1060,8 +1081,10 @@ public class Client {
 
 		LOGGER.info("Connected with " + clientNickname + " at " + iaServer + ":" + port);
 		requestsPrivateConnection.remove(clientNickname); // request done
-		clientGUI.println("Private connection established with " + clientNickname + ".", Color.blue);
-		clientGUI.println("To communicate with him privately use: /w " + clientNickname, Color.blue);
+		clientGUI.println("Private connection established with " + clientNickname + ".",
+				Color.blue);
+		clientGUI.println("To communicate with him privately use: /w " + clientNickname,
+				Color.blue);
 		clientGUI.println("To send a file to him use: /f " + clientNickname, Color.blue);
 	}
 
@@ -1074,7 +1097,8 @@ public class Client {
 	 *         otherwise
 	 */
 	private boolean isPrivateConnected(String clientNickname) {
-		return (privateConnections.containsKey(clientNickname) || clientServer.isConnected(clientNickname));
+		return (privateConnections.containsKey(clientNickname)
+				|| clientServer.isConnected(clientNickname));
 	}
 
 	private boolean hasRequestPrivateConnection(String clientNickname) {
@@ -1120,7 +1144,8 @@ public class Client {
 		Thread[] readers = connection.getReaders(clientNickname, clientGUI, this);
 		for (int i = 0; i < readers.length; i++) {
 			readers[i].start();
-			LOGGER.info("Started monitor [" + (i == 0 ? "messages" : "files") + "]" + " with " + clientNickname);
+			LOGGER.info("Started monitor [" + (i == 0 ? "messages" : "files") + "]" + " with "
+					+ clientNickname);
 		}
 		privateConnectionThreads.put(clientNickname, readers);
 	}
@@ -1159,6 +1184,7 @@ public class Client {
 	 * @param nickname
 	 *            of the other client to notify
 	 * @throws IOException
+	 *             if some I/O error occurs
 	 */
 	public void notifyTransferComplete(String nickname) throws IOException {
 		DualConnection connection = privateConnections.get(nickname);

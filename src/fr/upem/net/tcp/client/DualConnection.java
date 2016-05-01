@@ -10,7 +10,7 @@ import java.util.Objects;
  * Class describing the two connections which make a private connection. It has
  * a connection for private messages, and another for file transfers.
  * 
- * @author Cheneau & Lee
+ * @author Cheneau and Lee
  *
  */
 public class DualConnection {
@@ -43,8 +43,6 @@ public class DualConnection {
 	 * 
 	 * @param server
 	 *            the server to open the connections on
-	 * @param client
-	 *            the {@code Client} who is opening those connections
 	 * @return an instance of {@code DualSocketChannel}
 	 * @throws IOException
 	 *             if an I/O occurred on open
@@ -88,6 +86,7 @@ public class DualConnection {
 	 * @param bb
 	 *            {@link ByteBuffer} to be written
 	 * @throws IOException
+	 *             if an I/O error occurs
 	 */
 	public void writeInAll(ByteBuffer bb) throws IOException {
 		scMessages.write(bb);
@@ -101,6 +100,9 @@ public class DualConnection {
 	 * @param monitoredNickname
 	 *            the nickname to get monitors from
 	 * @param clientGUI
+	 *            graphical user interface
+	 * @param client
+	 *            to get readers from
 	 * @return an array of readers threads ready to be started
 	 */
 	public Thread[] getReaders(String monitoredNickname, ClientGUI clientGUI, Client client) {

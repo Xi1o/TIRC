@@ -14,6 +14,12 @@ import java.nio.channels.SocketChannel;
 import java.util.HashMap;
 import java.util.logging.Logger;
 
+/**
+ * Thread monitoring a connection, receives packets for the client.
+ * 
+ * @author Cheneau and Lee
+ *
+ */
 public class ThreadPrivateConnection implements Runnable {
 	private static final Logger LOGGER = Logger.getLogger("ClientLogger");
 	private final SocketChannel sc;
@@ -36,6 +42,11 @@ public class ThreadPrivateConnection implements Runnable {
 	 *            of client to monitor
 	 * @param clientGUI
 	 *            GUI where to print
+	 * @param client
+	 *            to monitor
+	 * @param messageThread
+	 *            identifies this thread as the thread reading for the private
+	 *            message connection
 	 */
 	public ThreadPrivateConnection(SocketChannel sc, String nickname, ClientGUI clientGUI,
 			Client client, boolean messageThread) {

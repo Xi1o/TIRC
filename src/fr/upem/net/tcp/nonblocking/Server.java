@@ -19,6 +19,12 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.logging.SimpleFormatter;
 
+/**
+ * Server for the cat in non-blocking mode.
+ * 
+ * @author Cheneau and Lee
+ *
+ */
 public class Server {
 	private static final Logger LOGGER = Logger.getLogger("ServerLogger");
 	private FileHandler fh;
@@ -64,9 +70,6 @@ public class Server {
 
 	/**
 	 * Launch server in ready state.
-	 * 
-	 * @throws IOException
-	 *             If some other I/O error occurs on server side.
 	 */
 	public void launch() {
 		try {
@@ -315,9 +318,10 @@ public class Server {
 	 * 
 	 * @param nickname
 	 *            of unregistered client
-	 * @param bbNickname
-	 *            {@link ByteBuffer} containing unregistered client's nickname.
+	 * @param context
+	 *            associated with this client
 	 */
+
 	public void unregisterClient(String nickname, Context context) {
 		if (null != clients.remove(nickname)) {
 			numberConnected--;

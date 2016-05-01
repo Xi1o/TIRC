@@ -15,6 +15,12 @@ import java.util.logging.Logger;
 
 import fr.upem.net.tcp.reader.CommandReader;
 
+/**
+ * Identifies a client. Read/writes from/to the client's {@code SocketChannel}.
+ * 
+ * @author Cheneau and Lee
+ *
+ */
 public class Context {
 	private static final Logger LOGGER = Logger.getLogger("ServerLogger");
 	private static final int BUFSIZ = 4096;
@@ -417,7 +423,7 @@ public class Context {
 		bb.put((byte) 9);
 		bb.put((byte) 0);
 		bb.putInt(nicknameSize);
-		bb.put(bbNickname);	
+		bb.put(bbNickname);
 		bb.put(ipVersion);
 		bb.put(addr);
 		bb.putInt(port);
