@@ -26,7 +26,10 @@ public class MainServer {
 
 		Scanner scanner = new Scanner(System.in);
 		while (scanner.hasNextLine()) {
-
+			String command = scanner.nextLine();
+			if(command.equals("quit")){
+				break;
+			}
 		}
 		threadServer.interrupt();
 		scanner.close();
