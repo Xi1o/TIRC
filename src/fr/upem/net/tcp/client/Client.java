@@ -13,6 +13,9 @@ import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.channels.SocketChannel;
 import java.nio.charset.Charset;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Objects;
@@ -36,7 +39,7 @@ public class Client {
 	public static final int MAX_NICKLEN = 15;
 	private static final int MAX_MSGSIZ = 2048;
 	public static final Charset CS_NICKNAME = Charset.forName("ASCII");
-	public static final Charset CS_MESSAGE = Charset.forName("UTF-8");
+	public static final Charset CS_UTF8 = Charset.forName("UTF-8");
 	/** Time before sending a keep alive packet */
 	private static final int KEEP_ALIVE_DELAY = 2000;
 	private final SocketChannel sc;
@@ -49,12 +52,16 @@ public class Client {
 	private Thread keepAliveThread;
 	/** Handler call right function depending on opcode. */
 	private final HashMap<Byte, Handeable> handler = new HashMap<>();
-	/** Thread associated to the nickname in private connection */
-	private final HashMap<String, Thread> privateConnectionThreads = new HashMap<>();
+	/**
+	 * Monitoring threads associated to the nickname in private connection. The
+	 * first thread reads private messages, while the second one reads file
+	 * transfers.
+	 */
+	private final HashMap<String, Thread[]> privateConnectionThreads = new HashMap<>();
 	/** Set of nicknames of connected clients. */
 	private final HashSet<String> connectedNicknames = new HashSet<>();
-	/** Nicknames in private connections with client's server */
-	private final ConcurrentHashMap<String, SocketChannel> privateConnections = new ConcurrentHashMap<>();
+	/** Nicknames in private connections with their client's server */
+	private final ConcurrentHashMap<String, DualConnection> privateConnections = new ConcurrentHashMap<>();
 	/** User has close client */
 	private boolean hasQuit;
 	private final ClientGUI clientGUI = new ClientGUI(this);
@@ -62,8 +69,14 @@ public class Client {
 	private final Random randomId = new Random();
 	/** Server where client listen for private connection */
 	private final ClientServer clientServer;
-	private HashSet<String> requestPrivateConnection = new HashSet<>();
-	private HashSet<String> waitingForAcceptPrivate = new HashSet<>();
+
+	/** Nicknames who we requested a private connection with */
+	private HashSet<String> requestsPrivateConnection = new HashSet<>();
+	/** Nicknames who requested a connection with us, but not yet answered */
+	private HashSet<String> pendingPrivateConnections = new HashSet<>();
+
+	/** Associates nickname with the path to the file to be sent to him */
+	private HashMap<String, Path> filesToSend = new HashMap<>();
 
 	@FunctionalInterface
 	private interface Handeable {
@@ -72,14 +85,15 @@ public class Client {
 
 	/* Core */
 
-	private Client(SocketChannel sc, ByteBuffer bbin, ByteBuffer bbout, String nickname,
-			ClientServer clientServer, int listenport) throws SecurityException, IOException {
+	private Client(SocketChannel sc, ByteBuffer bbin, ByteBuffer bbout, String nickname, ClientServer clientServer,
+			int listenport) throws SecurityException, IOException {
 		this.sc = sc;
 		this.bbin = bbin;
 		this.bbout = bbout;
 		this.nickname = nickname;
 		this.clientServer = clientServer;
 		this.clientServer.setUI(clientGUI);
+		this.clientServer.setFilesToSend(filesToSend);
 		this.listenport = listenport;
 	}
 
@@ -96,8 +110,7 @@ public class Client {
 	 * @return a new client.
 	 * @throws IOException
 	 */
-	public static Client create(InetSocketAddress host, String nickname, int listenport)
-			throws IOException {
+	public static Client create(InetSocketAddress host, String nickname, int listenport) throws IOException {
 		Objects.requireNonNull(host);
 		Objects.requireNonNull(nickname);
 		if (listenport < 0 || listenport > 65535) {
@@ -122,12 +135,12 @@ public class Client {
 		handler.put((byte) 3, () -> connectedClients());
 		handler.put((byte) 5, () -> receivedMessage());
 		handler.put((byte) 7, () -> confirmPrivateConnection());
-		handler.put((byte) 9, () -> answerPrivateConnection());
-		handler.put((byte) 17, () -> clientHasLeft());
+		handler.put((byte) 9, () -> proceedPrivateConnection());
+		handler.put((byte) 19, () -> clientHasLeft());
 	}
 
 	/**
-	 * Close connection with server and interrupt threads.
+	 * Close connection with server and interrupt monitoring threads.
 	 * 
 	 * @throws IOException
 	 */
@@ -138,7 +151,9 @@ public class Client {
 		serverThread.interrupt();
 		sc.close();
 		for (String key : privateConnectionThreads.keySet()) {
-			privateConnectionThreads.get(key).interrupt();
+			for (Thread reader : privateConnectionThreads.get(key)) {
+				reader.interrupt();
+			}
 		}
 	}
 
@@ -174,7 +189,7 @@ public class Client {
 
 		keepAliveThread = new Thread(() -> {
 			ByteBuffer bb = ByteBuffer.allocate(Byte.BYTES);
-			bb.put((byte) 18);
+			bb.put((byte) 20);
 			while (!Thread.interrupted()) {
 				try {
 					bb.flip();
@@ -198,7 +213,7 @@ public class Client {
 		try {
 			while (true) {
 				Byte opcode = readByte(sc, bbin);
-				handler.getOrDefault(opcode, () -> error()).handle();
+				handler.getOrDefault(opcode, () -> error(opcode)).handle();
 			}
 		} catch (IOException ioe) {
 			if (!hasQuit) {
@@ -236,31 +251,26 @@ public class Client {
 			}
 			String toNickname = argsInput[1];
 			if (toNickname.equals(nickname)) {
-				clientGUI.println("Cannot request a private communication with yourself.",
-						Color.red);
+				clientGUI.println("Cannot request a private communication with yourself.", Color.red);
 				break;
 			}
 			if (hasRequestPrivateConnection(toNickname)) {
-				clientGUI.println(
-						"You already made a private connection request with " + toNickname + ".",
-						Color.red);
+				clientGUI.println("You already made a private connection request with " + toNickname + ".", Color.red);
 				break;
 			}
 			if (isPrivateConnected(toNickname)) {
 				clientGUI.println("You're already connected with " + toNickname + ".", Color.red);
 				break;
 			}
-			if (waitingForAcceptPrivate.contains(toNickname)) {
-				clientGUI.println(toNickname + " has already requested a private connection.",
+			if (pendingPrivateConnections.contains(toNickname)) {
+				clientGUI.println("You already have a pending private connection request from " + toNickname + ".",
 						Color.red);
 				break;
 			}
 			packetClientInfoRequest(toNickname);
 			// Remember that you requested a private connection
-			requestPrivateConnection.add(toNickname);
-			clientGUI.println(
-					"Private request with " + toNickname + " made, waiting for confirmation.",
-					Color.blue);
+			requestsPrivateConnection.add(toNickname);
+			clientGUI.println("Private request with " + toNickname + " made, waiting for confirmation.", Color.blue);
 			break;
 		case "/w":
 			if (!hasAtLeastArgs(argsInput, 3)) {
@@ -273,16 +283,44 @@ public class Client {
 			}
 			String msg = argsInput[2];
 			if (!sendPrivateMessage(toNickname, msg)) {
-				clientGUI.println(
-						"You must request a private connection before: /private " + toNickname,
-						Color.red);
+				clientGUI.println("You must request a private connection before: /private " + toNickname, Color.red);
 				bbout.clear();
 				break;
 			}
 			clientGUI.println("*" + nickname + "* " + msg, Color.orange);
 			bbout.clear();
 			break;
-		case "/q":
+		case "/f": // File transfer request
+			if (!hasAtLeastArgs(argsInput, 3) || !isConnectedClient(argsInput[1])) {
+				break;
+			}
+			toNickname = argsInput[1];
+			if (toNickname.equals(nickname)) {
+				clientGUI.println("Cannot send a file to yourself.", Color.red);
+				break;
+			}
+			// parse the tilde in path if there is one
+			argsInput[2] = argsInput[2].replaceFirst("^~", System.getProperty("user.home"));
+			Path path = Paths.get(argsInput[2]);
+			if (Files.notExists(path)) {
+				clientGUI.println("The file does not exist : " + argsInput[2], Color.red);
+				break;
+			}
+			if (filesToSend.containsKey(toNickname)) {
+				clientGUI.println("You are already transfering a file with " + toNickname + ".", Color.red);
+				break;
+			}
+			if (!sendFileTransferRequest(toNickname, path)) {
+				clientGUI.println("You must request a private connection before: /private " + toNickname, Color.red);
+				bbout.clear();
+				break;
+			}
+			// remember you want to send that file to him
+			filesToSend.put(toNickname, path);
+			clientGUI.println("File transfer with " + toNickname + " made, waiting for confirmation.", Color.blue);
+			bbout.clear();
+			break;
+		case "/q": // Quit private connection
 			if (!hasAtLeastArgs(argsInput, 2)) {
 				break;
 			}
@@ -293,30 +331,36 @@ public class Client {
 			sendPrivateDisconnection(toNickname);
 			bbout.clear();
 			break;
-		case "/y":
+		case "/y": // Accept private connection
 			if (!hasAtLeastArgs(argsInput, 2)) {
 				break;
 			}
 			toNickname = argsInput[1];
 			if (!acceptPrivateInput(toNickname, true)) {
-				clientGUI.println(toNickname + " did not request for private communication.",
-						Color.red);
+				clientGUI.println(toNickname + " did not request for private communication.", Color.red);
 				break;
 			}
 			clientGUI.println("Private connection with " + toNickname + " accepted.", Color.blue);
 			break;
-		case "/n":
+		case "/n": // Refuse private connection
 			if (!hasAtLeastArgs(argsInput, 2)) {
 				break;
 			}
 			toNickname = argsInput[1];
 			if (!acceptPrivateInput(toNickname, false)) {
-				clientGUI.println(toNickname + " did not request for private communication.",
-						Color.red);
+				clientGUI.println(toNickname + " did not request for private communication.", Color.red);
 				break;
 			}
 			clientGUI.println("Private connection with " + toNickname + " refused.", Color.blue);
 			break;
+		/*
+		 * case "/yf": // Accept file transfer if (!hasAtLeastArgs(argsInput,
+		 * 2)) { break; } toNickname = argsInput[1]; if
+		 * (!acceptFileTransfer(toNickname, true)) {
+		 * clientGUI.println(toNickname + " did not request a file transfer.",
+		 * Color.red); break; } clientGUI.println("File transfer with " +
+		 * toNickname + " accepted.", Color.blue); break;
+		 */
 		default:
 			String command = argsInput[0];
 			if (command.startsWith("/")) {
@@ -344,7 +388,7 @@ public class Client {
 	}
 
 	private boolean acceptPrivateInput(String toNickname, boolean accept) throws IOException {
-		if (!waitingForAcceptPrivate.remove(toNickname)) {
+		if (!pendingPrivateConnections.remove(toNickname)) {
 			return false;
 		}
 		if (accept) {
@@ -352,6 +396,20 @@ public class Client {
 		} else {
 			refusePrivateConnection(toNickname);
 		}
+		return true;
+	}
+
+	// TODO private again after implementing user input?
+	boolean replyFileTransfer(String toNickname, boolean accept) throws IOException {
+		/*
+		 * if (!pendingFileTransfers.remove(toNickname)) { return false; }
+		 */
+		if (accept) {
+			packetAcceptFileTransfer();
+		} else {
+			packetRefuseFileTransfer();
+		}
+		writePrivateFile(toNickname);
 		return true;
 	}
 
@@ -385,6 +443,10 @@ public class Client {
 		if (input.startsWith("/")) {
 			// if it's a whisper : /w | nickname | msg
 			if (input.startsWith("/w")) {
+				return input.split(" ", 3);
+			}
+			// if it's a file transfer request : /f | nickname | path
+			if (input.startsWith("/f")) {
 				return input.split(" ", 3);
 			}
 			// args[0] contains "/command" and the rest = arguments
@@ -445,7 +507,7 @@ public class Client {
 			id = randomId.nextLong();
 		} while (id == (long) 0);
 		if (!clientServer.registerClient(nickname, id)) {
-			clientGUI.println("You are already connected with " + nickname + ".", Color.red);
+			clientGUI.println("You're already connected with " + nickname + ".", Color.red);
 			return;
 		}
 		packetAcceptPrivateCommunication(nickname, id);
@@ -466,7 +528,8 @@ public class Client {
 	/* Request to another client */
 
 	/**
-	 * Write the content of {@code ByteBuffer} bbout in private communication.
+	 * Write the content of {@code ByteBuffer} bbout in the private messages and
+	 * the file transfers connections.
 	 * 
 	 * @param toNickname
 	 *            nickname of user to write to
@@ -475,31 +538,96 @@ public class Client {
 	 * @throws IOException
 	 *             if some I/O error occurs with user
 	 */
-	private boolean writePrivateRequest(String toNickname) throws IOException {
-		SocketChannel clientSc = privateConnections.get(toNickname);
-		// If could not find socket channel try with server
-		if (null == clientSc) {
-			return clientServer.sendMessage(toNickname, bbout);
+	private boolean writePrivateGlobal(String toNickname) throws IOException {
+		DualConnection connection = privateConnections.get(toNickname);
+		// if could not find connection, try as a server
+		if (null == connection) {
+			return clientServer.sendPrivateGlobal(toNickname, bbout);
 		}
 		bbout.flip();
-		clientSc.write(bbout);
+		connection.writeInAll(bbout);
 		return true;
 	}
 
 	/**
-	 * Transmit id token to client to authenticate.
+	 * Write the content of {@code ByteBuffer} bbout in the private messages
+	 * connection only.
 	 * 
-	 * @param scClient
-	 *            {@code SocketChannel} of user to authenticate to
+	 * @param toNickname
+	 *            nickname of user to write to
+	 * @return {@code true} if content sent, {@code false} if could not find the
+	 *         user
+	 * @throws IOException
+	 *             if some I/O error occurs with user
+	 */
+	private boolean writePrivateMessage(String toNickname) throws IOException {
+		DualConnection connection = privateConnections.get(toNickname);
+		// if could not find connection, try as a server
+		if (null == connection) {
+			return clientServer.sendPrivateMessage(toNickname, bbout);
+		}
+		bbout.flip();
+		connection.writeInMessages(bbout);
+		return true;
+	}
+
+	/**
+	 * Write the content of {@code ByteBuffer} bbout in the file transfers
+	 * connection only.
+	 * 
+	 * @param toNickname
+	 *            nickname of user to write to
+	 * @return {@code true} if content sent, {@code false} if could not find the
+	 *         user
+	 * @throws IOException
+	 *             if some I/O error occurs with user
+	 */
+	private boolean writePrivateFile(String toNickname) throws IOException {
+		DualConnection connection = privateConnections.get(toNickname);
+		// if could not find connection, try as a server
+		if (null == connection) {
+			return clientServer.sendPrivateFile(toNickname, bbout);
+		}
+		bbout.flip();
+		connection.writeInFiles(bbout);
+		return true;
+	}
+
+	/**
+	 * Send a file's data.
+	 * 
+	 * @param nickname
+	 *            to send the data to
+	 * @throws IOException
+	 */
+	public void sendFile(String nickname) throws IOException {
+		DualConnection connection = privateConnections.get(nickname);
+		if (null != connection) {
+			Path path = filesToSend.get(nickname); // retrieve path
+			ByteBuffer bbFile = packetFile(path);
+			bbFile.flip();
+			connection.writeInFiles(bbFile);
+		}
+	}
+
+	/**
+	 * Transmit an id token for each connection (private messages and files) to
+	 * client to authenticate.
+	 * 
+	 * @param connection
+	 *            the connection to write the IDs in
 	 * @param id
 	 *            given by the user
 	 * @throws IOException
 	 *             if some I/O error occurs with user
 	 */
-	private void clientGiveId(SocketChannel scClient, long id) throws IOException {
-		packetClientGiveId(id);
+	private void clientGiveIds(DualConnection connection, long id) throws IOException {
+		packetClientGiveIdMessages(id);
 		bbout.flip();
-		scClient.write(bbout);
+		connection.writeInMessages(bbout);
+		packetClientGiveIdFiles(id);
+		bbout.flip();
+		connection.writeInFiles(bbout);
 	}
 
 	/**
@@ -516,7 +644,13 @@ public class Client {
 	 */
 	private boolean sendPrivateMessage(String toNickname, String msg) throws IOException {
 		packetSendPrivateMessage(msg);
-		return writePrivateRequest(toNickname);
+		return writePrivateMessage(toNickname); // in private msg connection
+	}
+
+	private boolean sendFileTransferRequest(String toNickname, Path path) throws IOException {
+		clientServer.addFileToSendAsServer(toNickname, path);
+		packetSendFileTransferRequest(path);
+		return writePrivateFile(toNickname); // in files connection
 	}
 
 	/**
@@ -531,7 +665,7 @@ public class Client {
 	 */
 	private boolean sendPrivateDisconnection(String toNickname) throws IOException {
 		packetSendPrivateDisconnection();
-		if (!writePrivateRequest(toNickname)) {
+		if (!writePrivateGlobal(toNickname)) {
 			clientGUI.println("No private connection with " + toNickname + ".", Color.red);
 			return false;
 		}
@@ -563,7 +697,7 @@ public class Client {
 	 */
 	private void packetMessage(String msg) {
 		bbout.clear();
-		ByteBuffer bbmsg = CS_MESSAGE.encode(msg);
+		ByteBuffer bbmsg = CS_UTF8.encode(msg);
 		bbmsg.limit((bbmsg.limit() > MAX_MSGSIZ) ? MAX_MSGSIZ - 1 : bbmsg.limit());
 		bbout.put((byte) 4);
 		bbout.putInt(bbmsg.limit());
@@ -575,7 +709,7 @@ public class Client {
 	 */
 	private void packetDisconnect() {
 		bbout.clear();
-		bbout.put((byte) 16);
+		bbout.put((byte) 18);
 	}
 
 	/**
@@ -614,7 +748,7 @@ public class Client {
 	 * Packet refuse a private communication.
 	 * 
 	 * @param nickname
-	 *            The nickname of refuse client.
+	 *            The nickname of refused client.
 	 */
 	private void packetRefusePrivateCommunication(String nickname) {
 		bbout.clear();
@@ -625,18 +759,61 @@ public class Client {
 		bbout.put(bbNickname);
 	}
 
+	/**
+	 * Packet accept a file transfer
+	 * 
+	 * @param nickname
+	 *            The nickname of the client we're accepting the transfer from.
+	 * @param id
+	 *            The id that client will need to send to prove his identity.
+	 */
+	private void packetAcceptFileTransfer() {
+		bbout.clear();
+		bbout.put((byte) 15);
+		bbout.put((byte) 0);
+	}
+
+	/**
+	 * Packet refuse a file transfer.
+	 * 
+	 * @param nickname
+	 *            The nickname of the client we're refusing the transfer from.
+	 */
+	private void packetRefuseFileTransfer() {
+		bbout.clear();
+		bbout.put((byte) 15);
+		bbout.put((byte) 1);
+	}
+
 	/* Client to client packet */
 
 	/**
-	 * Packet send given id to the client's server to prove identity.
+	 * Packet send the given id to the client's server to prove identity, for
+	 * the private messages connection
 	 * 
 	 * @param id
-	 *            The id given.
+	 *            The given id.
 	 */
-	private void packetClientGiveId(long id) {
+	private void packetClientGiveIdMessages(long id) {
 		bbout.clear();
 		ByteBuffer bbNickname = CS_NICKNAME.encode(nickname);
 		bbout.put((byte) 10);
+		bbout.putInt(bbNickname.remaining());
+		bbout.put(bbNickname);
+		bbout.putLong(id);
+	}
+
+	/**
+	 * Packet send the given id to the client's server to prove identity, for
+	 * the file transfers connection
+	 * 
+	 * @param id
+	 *            The given id.
+	 */
+	private void packetClientGiveIdFiles(long id) {
+		bbout.clear();
+		ByteBuffer bbNickname = CS_NICKNAME.encode(nickname);
+		bbout.put((byte) 11);
 		bbout.putInt(bbNickname.remaining());
 		bbout.put(bbNickname);
 		bbout.putLong(id);
@@ -650,11 +827,47 @@ public class Client {
 	 */
 	private void packetSendPrivateMessage(String msg) {
 		bbout.clear();
-		ByteBuffer bbmsg = CS_MESSAGE.encode(msg);
+		ByteBuffer bbmsg = CS_UTF8.encode(msg);
 		int msgSize = bbmsg.remaining();
-		bbout.put((byte) 11);
+		bbout.put((byte) 12);
 		bbout.putInt(msgSize);
 		bbout.put(bbmsg);
+	}
+
+	/**
+	 * Packet send a file transfer request.
+	 * 
+	 * @param msg
+	 *            message to send
+	 * @throws IOException
+	 */
+	private void packetSendFileTransferRequest(Path path) throws IOException {
+		long filesize = Files.size(path);
+		String filename = path.getFileName().toString();
+		bbout.clear();
+		ByteBuffer bbFilename = CS_UTF8.encode(filename);
+		int filenameSize = bbFilename.remaining();
+		bbout.put((byte) 14);
+		bbout.putInt(filenameSize);
+		bbout.put(bbFilename);
+		bbout.putLong(filesize);
+	}
+
+	/**
+	 * Packet send a file's data.
+	 * 
+	 * @param path
+	 *            to the file to be sent
+	 * @throws IOException
+	 */
+	public static ByteBuffer packetFile(Path path) throws IOException {
+		long filesize = Files.size(path);
+		ByteBuffer bbFile = ByteBuffer.allocate(Byte.BYTES + Long.BYTES + Byte.BYTES * (int) filesize);
+		byte[] data = Files.readAllBytes(path);
+		bbFile.put((byte) 16);
+		bbFile.putLong(filesize);
+		bbFile.put(data);
+		return bbFile;
 	}
 
 	/**
@@ -662,7 +875,7 @@ public class Client {
 	 */
 	private void packetSendPrivateDisconnection() {
 		bbout.clear();
-		bbout.put((byte) 12);
+		bbout.put((byte) 13);
 	}
 
 	/* Commands */
@@ -670,8 +883,8 @@ public class Client {
 	/**
 	 * If an unknown opcode was received.
 	 */
-	private void error() {
-		LOGGER.severe("Unknown opcode from server.");
+	private void error(byte opcode) {
+		LOGGER.severe("Unknown opcode from server : " + opcode);
 	}
 
 	/**
@@ -712,7 +925,7 @@ public class Client {
 		int nicknameSize = readInt(sc, bbin);
 		String nickname = readString(sc, bbin, nicknameSize, CS_NICKNAME);
 		int msgSize = readInt(sc, bbin);
-		String msg = readString(sc, bbin, msgSize, CS_MESSAGE);
+		String msg = readString(sc, bbin, msgSize, CS_UTF8);
 		clientGUI.println("<" + nickname + ">" + " " + msg, Color.black);
 	}
 
@@ -736,9 +949,9 @@ public class Client {
 	private void confirmPrivateConnection() throws IOException {
 		int nicknameSize = readInt(sc, bbin);
 		String nickname = readString(sc, bbin, nicknameSize, CS_NICKNAME);
-		clientGUI.println(nickname + " has requested a private communication with you.\n"
-				+ "Accept ? (/y " + nickname + " or /n " + nickname + ")", Color.magenta);
-		waitingForAcceptPrivate.add(nickname);
+		clientGUI.println(nickname + " has requested a private communication with you.\n" + "Accept ? (/y " + nickname
+				+ " or /n " + nickname + ")", Color.magenta);
+		pendingPrivateConnections.add(nickname);
 	}
 
 	/**
@@ -750,13 +963,13 @@ public class Client {
 	 * @throws IOException
 	 *             if some I/O error occurs
 	 */
-	private void answerPrivateConnection() throws IOException {
+	private void proceedPrivateConnection() throws IOException {
 		byte accept = readByte(sc, bbin);
 		int nicknameSize = readInt(sc, bbin);
 		String nickname = readString(sc, bbin, nicknameSize, CS_NICKNAME);
 		if (accept == (byte) 1) {
 			clientGUI.println(nickname + " has refused private communication.", Color.red);
-			requestPrivateConnection.remove(nickname);
+			requestsPrivateConnection.remove(nickname);
 			return;
 		}
 		byte ipv = readByte(sc, bbin);
@@ -775,7 +988,7 @@ public class Client {
 	}
 
 	/**
-	 * If opcode 16, received a client has left notification.
+	 * If opcode 19, received a client has left notification.
 	 * 
 	 * @throws IOException
 	 *             if some I/O error occurs
@@ -789,8 +1002,10 @@ public class Client {
 		// If made or received private connection request, reset
 		privateConnections.remove(nickname);
 		clientServer.revokeRequest(nickname);
-		waitingForAcceptPrivate.remove(nickname);
-		requestPrivateConnection.remove(nickname);
+		pendingPrivateConnections.remove(nickname);
+		requestsPrivateConnection.remove(nickname);
+		filesToSend.remove(nickname);
+		clientServer.forgetFileTransfer(nickname);
 	}
 
 	/* Other */
@@ -811,7 +1026,8 @@ public class Client {
 	}
 
 	/**
-	 * Establish a private connection.
+	 * Establishes a private connection with the specified client. Implicitly
+	 * establishes 2 separate connections : 1 for messages, 1 for files.
 	 * 
 	 * @param clientNickname
 	 *            nickname of client trying to establish a private connection to
@@ -821,28 +1037,32 @@ public class Client {
 	 *            where server listen
 	 * @param id
 	 *            to send to authenticate
+	 * @throws IOException
 	 */
 	private void privateConnect(String clientNickname, InetAddress iaServer, int port, long id) {
-		if (!requestPrivateConnection.contains(clientNickname)) {
+		if (!requestsPrivateConnection.contains(clientNickname)) {
 			LOGGER.warning(iaServer + " confirmed a private connection that was not requested");
 			return;
 		}
 		InetSocketAddress server = new InetSocketAddress(iaServer, port);
 		try {
-			SocketChannel clientSc = SocketChannel.open(server);
-			LOGGER.info("Connected with " + clientNickname + " at " + iaServer + ":" + port);
-			clientGiveId(clientSc, id);
-			addSocketChannelReader(clientSc, clientNickname);
-			privateConnections.put(clientNickname, clientSc);
-			requestPrivateConnection.remove(clientNickname);
-			clientGUI.println("Private connection established with " + clientNickname + ".",
-					Color.blue);
-			clientGUI.println("To communicate with him privately use: /w " + clientNickname,
-					Color.blue);
+			// open two connections : messages and files
+			DualConnection connection = DualConnection.createFromServer(server);
+			clientGiveIds(connection, id); // send OpCode 10 and 11
+			// add sockets monitors
+			addSocketChannelReaders(connection, clientNickname);
+			// associates nickname with sockets
+			privateConnections.put(clientNickname, connection);
 		} catch (IOException ioe) {
 			LOGGER.log(Level.WARNING, "Could not connect to " + clientNickname + ": " + ioe, ioe);
 			return;
 		}
+
+		LOGGER.info("Connected with " + clientNickname + " at " + iaServer + ":" + port);
+		requestsPrivateConnection.remove(clientNickname); // request done
+		clientGUI.println("Private connection established with " + clientNickname + ".", Color.blue);
+		clientGUI.println("To communicate with him privately use: /w " + clientNickname, Color.blue);
+		clientGUI.println("To send a file to him use: /f " + clientNickname, Color.blue);
 	}
 
 	/**
@@ -854,12 +1074,11 @@ public class Client {
 	 *         otherwise
 	 */
 	private boolean isPrivateConnected(String clientNickname) {
-		return (privateConnections.containsKey(clientNickname)
-				|| clientServer.isConnected(clientNickname));
+		return (privateConnections.containsKey(clientNickname) || clientServer.isConnected(clientNickname));
 	}
 
 	private boolean hasRequestPrivateConnection(String clientNickname) {
-		return requestPrivateConnection.contains(clientNickname);
+		return requestsPrivateConnection.contains(clientNickname);
 	}
 
 	/**
@@ -871,36 +1090,39 @@ public class Client {
 	 *             if some I/O error occurs
 	 */
 	private void privateDisconnect(String clientNickname) throws IOException {
-		SocketChannel clientSc = privateConnections.get(clientNickname);
-		if (null != clientSc) {
-			Thread t = privateConnectionThreads.get(clientNickname);
-			if (null == t) {
-				LOGGER.severe("Missing private connection thread");
-				return;
+		DualConnection connection = privateConnections.get(clientNickname);
+		if (null != connection) {
+			for (Thread reader : privateConnectionThreads.get(clientNickname)) {
+				if (null == reader) {
+					LOGGER.severe("Missing private connection thread");
+					return;
+				}
+				reader.interrupt();
 			}
-			t.interrupt();
+			connection.closeAll();
 			privateConnections.remove(clientNickname);
-			clientSc.close();
 			return;
 		}
+		// if could not find connection, then try as a server
 		clientServer.closePrivateConnection(clientNickname);
 	}
 
 	/**
-	 * Launch a new thread that will monitor private received message and print
-	 * them.
+	 * Launch two new threads that will monitor private received messages and
+	 * private received files.
 	 * 
-	 * @param sc
-	 *            {@code SocketChannel} to monitor
+	 * @param connection
+	 *            {@code DualSocketChannel} to monitor
 	 * @param clientNickname
 	 *            nickname of user to monitor
 	 */
-	private void addSocketChannelReader(SocketChannel sc, String clientNickname) {
-		Runnable r = new ThreadPrivateConnection(sc, clientNickname, clientGUI, this);
-		Thread t = new Thread(r);
-		t.start();
-		privateConnectionThreads.put(clientNickname, t);
-		LOGGER.info("New private connection thread running with " + clientNickname);
+	private void addSocketChannelReaders(DualConnection connection, String clientNickname) {
+		Thread[] readers = connection.getReaders(clientNickname, clientGUI, this);
+		for (int i = 0; i < readers.length; i++) {
+			readers[i].start();
+			LOGGER.info("Started monitor [" + (i == 0 ? "messages" : "files") + "]" + " with " + clientNickname);
+		}
+		privateConnectionThreads.put(clientNickname, readers);
 	}
 
 	/**
@@ -918,7 +1140,39 @@ public class Client {
 		}
 	}
 
-	public void removePrivateConnection(String toNickname) {
+	public void forgetPrivateConnection(String toNickname) {
 		privateConnections.remove(toNickname);
 	}
+
+	public void forgetFileTransfer(String nickname) {
+		filesToSend.remove(nickname);
+	}
+
+	public String getFilenameWithNickname(String nickname) {
+		return filesToSend.get(nickname).getFileName().toString();
+	}
+
+	/**
+	 * This client notifies the one specified by nickname that a transfer was
+	 * completed.
+	 * 
+	 * @param nickname
+	 *            of the other client to notify
+	 * @throws IOException
+	 */
+	public void notifyTransferComplete(String nickname) throws IOException {
+		DualConnection connection = privateConnections.get(nickname);
+		if (null == connection) {
+			return;
+		}
+		bbout.clear();
+		bbout.put((byte) 17);
+		bbout.flip();
+		connection.writeInFiles(bbout);
+	}
+
+	/*
+	 * public static void addPendingFileTransfer(String nickname) {
+	 * pendingFileTransfers.add(nickname); }
+	 */
 }
